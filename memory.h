@@ -35,12 +35,15 @@ typedef struct _Definition {
 #define PARAMETER_P_OFFSET 8
 
 #define MEMORY_SIZE 65536
+#define NUM_VOCS 8
 
 typedef struct _Memory {
     uint16_t memory_pointer;
     uint8_t memory[MEMORY_SIZE];
 
-    uint16_t latest_definition_p; // pointer within virtual memory
+    uint16_t *LAST_var;
+    uint16_t *CONTEXT_var;
+    uint16_t *CURRENT_var;
 } Memory;
 
 #define memory_at16(mem, p) ((uint16_t*) (((mem)->memory) + (p)))
@@ -59,7 +62,7 @@ uint16_t add_definition(Memory *memory, char *name, uint8_t is_immediate, enum D
 
 Definition *get_definition(Memory *memory, uint16_t p);
 
-Definition *find_word(Memory *memory, char *name);
+Definition *find_word(Memory *memory, uint8_t *name);
 
 void free_definition(Definition *definition);
 

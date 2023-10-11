@@ -3,11 +3,11 @@
 #include <string.h>
 
 #include "memory.h"
+#include "util.h"
 
 Memory *create_memory() {
     Memory *memory = malloc(sizeof(*memory));
     memory->memory_pointer = 1;
-    memory->latest_definition_p = 0;
     return memory;
 }
 
@@ -47,9 +47,9 @@ uint16_t insert16(Memory *memory, uint16_t value) {
  * 
  * The caller should then allot something to the parameter field.
  */
-uint16_t add_definition(Memory *memory, char *name, uint8_t is_immediate, enum DefinitionType type, uint8_t set_latest) {
+uint16_t add_definition(Memory *memory, char *name, uint8_t is_immediate, enum DefinitionType type, uint8_t append_to_vocabulary) {
     uint16_t name_length = strlen(name);
-    uint16_t previous_p = memory->latest_definition_p;
+    uint16_t previous_p = *memory_at16(memory, *memory->CURRENT_var);
     //printf("Defining %s at %i prev %i\n", name, memory->memory_pointer, previous_p);
     for (int i = 0; i < name_length; i++) {
         insert8(memory, name[i]);
@@ -60,7 +60,10 @@ uint16_t add_definition(Memory *memory, char *name, uint8_t is_immediate, enum D
     insert8(memory, type);
     uint16_t parameter_p = insert16(memory, 0) + 2;
 
-    if (set_latest) memory->latest_definition_p = head_p;
+    *memory->LAST_var = head_p;
+    if (append_to_vocabulary) {
+        *memory_at16(memory, *memory->CURRENT_var) = head_p;
+    }
     return parameter_p;
 }
 
@@ -80,16 +83,25 @@ Definition *get_definition(Memory *memory, uint16_t p) {
     return definition;
 }
 
-Definition *find_word(Memory *memory, char *name) {
-    uint16_t p = memory->latest_definition_p;
-    while (p != 0) {
-        Definition *definition = get_definition(memory, p);
-        //printf("Searching for %s, looking at %i %s %i next %i\n", name, p, definition->name, definition->parameter_p, definition->previous_p);
-        if (strcmp(definition->name, name) == 0) {
-            return definition;
+Definition *find_word(Memory *memory, uint8_t *name) {
+    uint8_t *normalized_name = upper(name);
+    uint16_t *context = memory->CONTEXT_var;
+    for (int i = 0; i < NUM_VOCS; i++) {
+        if (context[i] == 0) {
+            continue;
         }
-        p = definition->previous_p;
+        uint16_t p = *memory_at16(memory, context[i]);
+        while (p != 0) {
+            Definition *definition = get_definition(memory, p);
+            //printf("Searching for %s, looking at %i %s %i next %i\n", name, p, definition->name, definition->parameter_p, definition->previous_p);
+            if (strcmp(definition->name, name) == 0) {
+                free(normalized_name);
+                return definition;
+            }
+            p = definition->previous_p;
+        }
     }
+    free(normalized_name);
     return 0;
 }
 

@@ -7,6 +7,9 @@ typedef uint16_t ForthValue;
 
 #include "memory.h"
 #include "stack.h"
+#include "mass_storage.h"
+
+#define MAX_INPUT_SIZE 1024
 
 typedef struct _InterpreterState {
     Stack *RETURN_STACK;
@@ -16,18 +19,26 @@ typedef struct _InterpreterState {
 
     // Input buffers
 
-    uint8_t BLOCK_BUFFER[1024];
-    uint16_t BLK;
+    uint8_t BLOCK_BUFFER[BLOCK_SIZE];
+    uint16_t *BLK_var;
 
-    #define MAX_INPUT_SIZE 1024
+    uint8_t *INPUT_BUFFER;
+    uint16_t *NUMBER_TIB_var;
+    uint16_t *TO_IN_var;
 
-    uint8_t INPUT_BUFFER[MAX_INPUT_SIZE];
-    uint16_t TIB;
-    uint16_t TO_IN;
+    // Misc variables
+
+    uint16_t *BASE_var;
+    uint16_t *SPAN_var;
+    uint16_t *STATE_var;
+    uint16_t *LAST_var;
+    uint16_t *CURRENT_var;
+    uint16_t *CONTEXT_var;
+    uint16_t *VOC_LINK_var;
+    uint16_t *FILE_var;
 
     // Compiler state
 
-    uint8_t compilation_flag;
     uint16_t program_counter;
 
     // Builtin compilation addresses
@@ -45,7 +56,7 @@ void add_builtin(char *name, enum BuiltinWord word, uint8_t is_immediate);
 
 void create_forth_vocabulary();
 
-void interpret_from_input_stream();
+int interpret_from_input_stream();
 
 void interpret_from_memory();
 

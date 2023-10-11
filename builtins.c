@@ -1,10 +1,13 @@
 #include <malloc.h>
+#include <string.h>
 
 #include "builtins.h"
 #include "stack.h"
 #include "input_stream.h"
+#include "mass_storage.h"
 #include "memory.h"
 #include "forth.h"
+#include "errors.h"
 
 // Returns -1 if the builtin is an exit builtin, 0 if success, 1 if error
 typedef int (*builtin_func)(InterpreterState *state);
@@ -32,16 +35,23 @@ typedef int (*builtin_func)(InterpreterState *state);
         return ERROR_WORD_NOT_FOUND;\
     }
 
+// Forward declarations
+
+int builtin_quit(InterpreterState *state);
+int builtin_exit(InterpreterState *state);
+
+// Builtin definitions
+
 int builtin_store(InterpreterState *state) {
     pop_to_unsigned(address);
     pop_to_unsigned(value);
     *memory_at16(state->MEMORY, address) = value;
+    return 0;
 }
 
 // #
 // #>
 // #S
-// #TIB
 
 int builtin_tick(InterpreterState *state) {
     read_name(word, definition);
@@ -256,16 +266,17 @@ int builtin_two_divide(InterpreterState *state) {
 int builtin_colon(InterpreterState *state) {
     char *name = read_word(state);
     uint16_t param_field = add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_COLON, 0);
-    state->compilation_flag = 1;
-    push_from(param_field - PARAMETER_P_OFFSET)
+    *state->CONTEXT_var = *state->CURRENT_var;
+    *state->STATE_var = 1;
+    push_from(param_field - PARAMETER_P_OFFSET);
     free(name);
     return 0;
 }
 
 int builtin_semi_colon(InterpreterState *state) {
     pop_to_unsigned(addr); // sys
-    state->compilation_flag = 0;
-    state->MEMORY->latest_definition_p = addr;
+    *state->STATE_var = 0;
+    *memory_at16(state->MEMORY, *state->CURRENT_var) = addr;
     insert16(state->MEMORY, state->BUILTINS[BUILTIN_WORD_EXIT]);
     return 0;
 }
@@ -296,11 +307,6 @@ int builtin_greater_than(InterpreterState *state) {
 int builtin_to_body(InterpreterState *state) {
     pop_to_unsigned(addr);
     push_from(addr + 1);
-    return 0;
-}
-
-int builtin_to_in(InterpreterState *state) {
-    push_from(state->TO_IN);
     return 0;
 }
 
@@ -352,9 +358,7 @@ int builtin_and(InterpreterState *state) {
     return 0;
 }
 
-// BASE
 // BEGIN
-// BLK
 // BLOCK
 // BUFFER
 
@@ -392,10 +396,22 @@ int builtin_cmove_up(InterpreterState *state) {
 }
 
 int builtin_compile(InterpreterState *state) {
-    read_name(word, definition);
-    insert16(state->MEMORY, definition->parameter_p - PARAMETER_P_OFFSET + TYPE_OFFSET);
-    free_definition(definition);
-    free(word);
+    // : COMPILE R> DUP 2+ >R @ , ;
+    /*uint16_t return_addr;
+    if (pop(state->RETURN_STACK, &return_addr) == -1) {
+        return ERROR_RETURN_STACK_UNDERFLOW;
+    }
+    push(state->RETURN_STACK, return_addr + 2);
+    insert16(state->MEMORY, *memory_at16(state->MEMORY, return_addr));
+    return 0;*/
+}
+
+int builtin_constant(InterpreterState *state) {
+    pop_to_unsigned(value);
+    char *name = read_word(state);
+    add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_CONSTANT, 1);
+    insert16(state->MEMORY, value);
+    free(name);
     return 0;
 }
 
@@ -409,7 +425,7 @@ int builtin_cr(InterpreterState *state) {
 
 int builtin_create(InterpreterState *state) {
     char *name = read_word(state);
-    uint16_t param_field = add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_VARIABLE, 0);
+    uint16_t param_field = add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_VARIABLE, 1);
     free(name);
     return 0;
 }
@@ -457,7 +473,7 @@ int builtin_dnegate(InterpreterState *state) {
 
 int builtin_does(InterpreterState *state) {
     uint16_t pc = state->program_counter;
-    uint16_t p = state->MEMORY->latest_definition_p;
+    uint16_t p = *state->MEMORY->LAST_var;
     *memory_at8(state->MEMORY, p + TYPE_OFFSET) = DEFINITION_TYPE_DOES;
     *memory_at16(state->MEMORY, p + CODE_P_OFFSET) = pc;
     return builtin_exit(state);
@@ -489,13 +505,13 @@ int builtin_execute(InterpreterState *state) {
 }
 
 int builtin_exit(InterpreterState *state) {
-    if (state->RETURN_STACK->size > 0) {
-        uint16_t ret_addr;
-        pop(state->RETURN_STACK, &ret_addr);
-        state->program_counter = ret_addr;
-        return 0;
+    uint16_t ret_addr;
+    if (pop(state->RETURN_STACK, &ret_addr) == -1) return ERROR_RETURN_STACK_UNDERFLOW;
+    state->program_counter = ret_addr;
+    if (ret_addr == 0) {
+        return -1;
     }
-    return -1;
+    return 0;
 }
 
 int builtin_expect(InterpreterState *state) {
@@ -557,8 +573,8 @@ int builtin_forget(InterpreterState *state) {
     uint16_t p = definition->previous_p;
     free_definition(definition);
     free(word);
-    state->MEMORY->latest_definition_p = p;
-    return 0;
+    // TODO
+    return 1;
 }
 
 // FORTH
@@ -577,7 +593,7 @@ int builtin_here(InterpreterState *state) {
 // IF
 
 int builtin_immediate(InterpreterState *state) {
-    uint16_t p = state->MEMORY->latest_definition_p;
+    uint16_t p = *state->MEMORY->LAST_var;
     *memory_at8(state->MEMORY, p + IS_IMMEDIATE_OFFSET) = 1;
     return 0;
 }
@@ -669,7 +685,7 @@ int builtin_pick(InterpreterState *state) {
 int builtin_quit(InterpreterState *state) {
     state->RETURN_STACK->top = state->RETURN_STACK->bottom; 
     state->RETURN_STACK->size = 0;
-    state->compilation_flag = 0;
+    *state->STATE_var = 0;
     return -1;
 }
 
@@ -730,9 +746,6 @@ int builtin_spaces(InterpreterState *state) {
     }
     return 0;
 }
-
-// SPAN
-// STATE
 
 int builtin_swap(InterpreterState *state) {
     pop_to_unsigned(n2);
@@ -795,7 +808,7 @@ int builtin_um_slash_mod(InterpreterState *state) {
 
 int builtin_variable(InterpreterState *state) {
     char *name = read_word(state);
-    uint16_t param_field = add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_VARIABLE, 0);
+    uint16_t param_field = add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_VARIABLE, 1);
     allot(state->MEMORY, 2);
     free(name);
     return 0;
@@ -813,7 +826,7 @@ int builtin_xor(InterpreterState *state) {
 }
 
 int builtin_left_bracket(InterpreterState *state) {
-    state->compilation_flag = 0;
+    *state->STATE_var = 0;
     return 0;
 }
 
@@ -841,8 +854,130 @@ int builtin_bracket_compile(InterpreterState *state) {
 }
 
 int builtin_right_bracket(InterpreterState *state) {
-    state->compilation_flag = 1;
+    *state->STATE_var = 1;
     return 0;
+}
+
+int builtin_backward_mark(InterpreterState *state) {
+    push_from(state->MEMORY->memory_pointer);
+    return 0;
+}
+
+int builtin_backward_resolve(InterpreterState *state) {
+    pop_to_unsigned(addr);
+    uint16_t offset = state->MEMORY->memory_pointer - addr;
+    insert16(state->MEMORY, offset);
+    return 0;
+}
+
+int builtin_forward_mark(InterpreterState *state) {
+    push_from(state->MEMORY->memory_pointer);
+    insert16(state->MEMORY, 0);
+    return 0;
+}
+
+int builtin_forward_resolve(InterpreterState *state) {
+    pop_to_unsigned(addr);
+    uint16_t offset = state->MEMORY->memory_pointer - addr;
+    *memory_at16(state->MEMORY, addr) = offset;
+    return 0;
+}
+
+int builtin_two_times(InterpreterState *state) {
+    pop_to_unsigned(n);
+    push_from(n << 1);
+    return 0;
+}
+
+int builtin_include(InterpreterState *state) {
+    char *word = read_word(state);
+    FILE *file = fopen(word, "r");
+    if (file == 0) {
+        free(word);
+        return ERROR_FILE_NOT_FOUND;
+    }
+    fseek(file, 0, SEEK_END);
+    long file_size = ftell(file);
+    if (file_size > MAX_INPUT_SIZE - 1) {
+        fclose(file);
+        free(word);
+        return ERROR_FILE_TOO_LARGE;
+    }
+    fseek(file, 0, SEEK_SET);
+    uint8_t *buffer = malloc(file_size + 1);
+    fread(buffer, 1, file_size, file);
+    buffer[file_size] = 0;
+    fclose(file);
+    memcpy(state->INPUT_BUFFER, buffer, file_size + 1);
+    free(buffer);
+    free(word);
+    *state->TO_IN_var = 0;
+    *state->NUMBER_TIB_var = file_size;
+    interpret_from_input_stream();
+    return 0;
+}
+
+int builtin_from(InterpreterState *state) {
+    uint8_t *word = read_word(state);
+    int err = open_mass_storage(word);
+    free(word);
+    return err;
+}
+
+int builtin_see(InterpreterState *state) {
+    read_name(word, definition);
+    printf("\n");
+    if (definition->type == DEFINITION_TYPE_VARIABLE) {
+        printf("VARIABLE %s Value = %d", definition->name, *memory_at16(state->MEMORY, definition->parameter_p));
+    } else if (definition->type == DEFINITION_TYPE_CONSTANT) {
+        uint16_t value = *memory_at16(state->MEMORY, definition->parameter_p);
+        printf("%d CONSTANT %s", value, definition->name);
+    } else if (definition->type == DEFINITION_TYPE_BUILTIN) {
+        printf("BUILTIN %s", definition->name);
+        if (definition->is_immediate) {
+            printf(" IMMEDIATE");
+        }
+    } else if (definition->type == DEFINITION_TYPE_COLON || definition->type == DEFINITION_TYPE_DOES) {
+        printf(": %s\n  ", definition->name);
+        uint16_t code_p = definition->type == DEFINITION_TYPE_COLON ? definition->parameter_p : definition->code_p;
+        for (int i = 0;; i += 2) {
+            uint16_t p = code_p + i;
+            uint16_t addr = *memory_at16(state->MEMORY, p);
+            if (addr == state->BUILTINS[BUILTIN_WORD_EXIT]) {
+                break;
+            }
+            if (addr == state->BUILTINS[BUILTIN_WORD_LIT]) {
+                uint16_t value = *memory_at16(state->MEMORY, p + 2);
+                printf("LIT %d ", value);
+                i += 2;
+            } else if (addr == state->BUILTINS[BUILTIN_WORD_BRANCH]) {
+                uint16_t value = *memory_at16(state->MEMORY, p + 2);
+                printf("BRANCH %d ", value);
+                i += 2;
+            } else if (addr == state->BUILTINS[BUILTIN_WORD_QUESTION_BRANCH]) {
+                uint16_t value = *memory_at16(state->MEMORY, p + 2);
+                printf("?BRANCH %d ", value);
+                i += 2;
+            } else {
+                Definition *d = get_definition(state->MEMORY, addr - TYPE_OFFSET);
+                if (d != 0 && *d->name != '\0') {
+                    printf("%s ", d->name);
+                    free_definition(d);
+                } else {
+                    printf("%d ", addr);
+                }
+            }
+        }
+        printf(";");
+        if (definition->is_immediate) {
+            printf(" IMMEDIATE");
+        }
+    } else {
+        printf("UNKNOWN %s", definition->name);
+    }
+
+    free_definition(definition);
+    free(word);
 }
 
 int builtin_noop(InterpreterState *state) {
@@ -891,7 +1026,7 @@ builtin_func builtins[] = {
     [BUILTIN_WORD_EQUALS] = builtin_equals,
     [BUILTIN_WORD_GREATER_THAN] = builtin_greater_than,
     [BUILTIN_WORD_TO_BODY] = builtin_to_body,
-    [BUILTIN_WORD_TO_IN] = builtin_to_in,
+    //[BUILTIN_WORD_TO_IN] = builtin_to_in,
     [BUILTIN_WORD_TO_R] = builtin_to_r,
     [BUILTIN_WORD_QUESTION_DUP] = builtin_question_dup,
     [BUILTIN_WORD_FETCH] = builtin_fetch,
@@ -910,7 +1045,7 @@ builtin_func builtins[] = {
     [BUILTIN_WORD_CMOVE] = builtin_cmove,
     [BUILTIN_WORD_CMOVE_UP] = builtin_cmove_up,
     [BUILTIN_WORD_COMPILE] = builtin_compile,
-    //[BUILTIN_WORD_CONSTANT] = builtin_constant,
+    [BUILTIN_WORD_CONSTANT] = builtin_constant,
     //[BUILTIN_WORD_CONVERT] = builtin_convert,
     //[BUILTIN_WORD_COUNT] = builtin_count,
     [BUILTIN_WORD_CR] = builtin_cr,
@@ -987,11 +1122,24 @@ builtin_func builtins[] = {
     [BUILTIN_WORD_BRACKET_COMPILE] = builtin_bracket_compile,
     [BUILTIN_WORD_RIGHT_BRACKET] = builtin_right_bracket,
 
+    [BUILTIN_WORD_BACKWARD_MARK] = builtin_backward_mark,
+    [BUILTIN_WORD_BACKWARD_RESOLVE] = builtin_backward_resolve,
+    [BUILTIN_WORD_FORWARD_MARK] = builtin_forward_mark,
+    [BUILTIN_WORD_FORWARD_RESOLVE] = builtin_forward_resolve,
+
     [BUILTIN_WORD_QUESTION_BRANCH] = builtin_error_not_executable,
     [BUILTIN_WORD_BRANCH] = builtin_error_not_executable,
+
+    [BUILTIN_WORD_TWO_TIMES] = builtin_two_times,
+
+    [BUILTIN_WORD_INCLUDE] = builtin_include,
+    [BUILTIN_WORD_FROM] = builtin_from,
+
+    [BUILTIN_WORD_SEE] = builtin_see,
 };
 
 int execute_builtin(InterpreterState *state, enum BuiltinWord word) {
+    if (builtins[word] == 0 || word > BUILTIN_WORD_SEE) return ERROR_WORD_NOT_FOUND;
     return builtins[word](state);
 }
 
@@ -1001,7 +1149,7 @@ void add_builtins(add_builtin_func add_builtin) {
     add_builtin("#", BUILTIN_WORD_SHARP, 0);
     add_builtin("#>", BUILTIN_WORD_SHARP_GREATER, 0);
     add_builtin("#S", BUILTIN_WORD_SHARP_S, 0);
-    add_builtin("#TIB", BUILTIN_WORD_NUMBER_TIB, 0);
+    //add_builtin("#TIB", BUILTIN_WORD_NUMBER_TIB, 0);
     add_builtin("'", BUILTIN_WORD_TICK, 0);
     add_builtin("(", BUILTIN_WORD_PAREN, 1);
     add_builtin("*", BUILTIN_WORD_TIMES, 0);
@@ -1033,7 +1181,7 @@ void add_builtins(add_builtin_func add_builtin) {
     add_builtin("=", BUILTIN_WORD_EQUALS, 0);
     add_builtin(">", BUILTIN_WORD_GREATER_THAN, 0);
     add_builtin(">BODY", BUILTIN_WORD_TO_BODY, 0);
-    add_builtin(">IN", BUILTIN_WORD_TO_IN, 0);
+    //add_builtin(">IN", BUILTIN_WORD_TO_IN, 0);
     add_builtin(">R", BUILTIN_WORD_TO_R, 0);
     add_builtin("?DUP", BUILTIN_WORD_QUESTION_DUP, 0);
     add_builtin("@", BUILTIN_WORD_FETCH, 0);
@@ -1042,16 +1190,16 @@ void add_builtins(add_builtin_func add_builtin) {
     add_builtin("ABS", BUILTIN_WORD_ABS, 0);
     add_builtin("ALLOT", BUILTIN_WORD_ALLOT, 0);
     add_builtin("AND", BUILTIN_WORD_AND, 0);
-    add_builtin("BASE", BUILTIN_WORD_BASE, 0);
+    //add_builtin("BASE", BUILTIN_WORD_BASE, 0);
     add_builtin("BEGIN", BUILTIN_WORD_BEGIN, 1);
-    add_builtin("BLK", BUILTIN_WORD_BLK, 0);
+    //add_builtin("BLK", BUILTIN_WORD_BLK, 0);
     add_builtin("BLOCK", BUILTIN_WORD_BLOCK, 0);
     add_builtin("BUFFER", BUILTIN_WORD_BUFFER, 0);
     add_builtin("C!", BUILTIN_WORD_C_STORE, 0);
     add_builtin("C@", BUILTIN_WORD_C_FETCH, 0);
     add_builtin("CMOVE", BUILTIN_WORD_CMOVE, 0);
     add_builtin("CMOVE>", BUILTIN_WORD_CMOVE_UP, 0);
-    add_builtin("COMPILE", BUILTIN_WORD_COMPILE, 0);
+    //add_builtin("COMPILE", BUILTIN_WORD_COMPILE, 0);
     add_builtin("CONSTANT", BUILTIN_WORD_CONSTANT, 0);
     add_builtin("CONVERT", BUILTIN_WORD_CONVERT, 0);
     add_builtin("COUNT", BUILTIN_WORD_COUNT, 0);
@@ -1108,11 +1256,11 @@ void add_builtins(add_builtin_func add_builtin) {
     add_builtin("SIGN", BUILTIN_WORD_SIGN, 0);
     add_builtin("SPACE", BUILTIN_WORD_SPACE, 0);
     add_builtin("SPACES", BUILTIN_WORD_SPACES, 0);
-    add_builtin("SPAN", BUILTIN_WORD_SPAN, 0);
-    add_builtin("STATE", BUILTIN_WORD_STATE, 0);
+    //add_builtin("SPAN", BUILTIN_WORD_SPAN, 0);
+    //add_builtin("STATE", BUILTIN_WORD_STATE, 0);
     add_builtin("SWAP", BUILTIN_WORD_SWAP, 0);
     add_builtin("THEN", BUILTIN_WORD_THEN, 1);
-    add_builtin("TIB", BUILTIN_WORD_TIB, 0);
+    //add_builtin("TIB", BUILTIN_WORD_TIB, 0);
     add_builtin("TYPE", BUILTIN_WORD_TYPE, 0);
     add_builtin("U.", BUILTIN_WORD_U_DOT, 0);
     add_builtin("U<", BUILTIN_WORD_U_LESS_THAN, 0);
@@ -1129,7 +1277,25 @@ void add_builtins(add_builtin_func add_builtin) {
     add_builtin("[COMPILE]", BUILTIN_WORD_BRACKET_COMPILE, 1);
     add_builtin("]", BUILTIN_WORD_RIGHT_BRACKET, 0);
 
+    // Marks and resolves
+    add_builtin("<MARK", BUILTIN_WORD_BACKWARD_MARK, 0);
+    add_builtin("<RESOLVE", BUILTIN_WORD_BACKWARD_RESOLVE, 0);
+    add_builtin(">MARK", BUILTIN_WORD_FORWARD_MARK, 0);
+    add_builtin(">RESOLVE", BUILTIN_WORD_FORWARD_RESOLVE, 0);
+    //add_builtin("CONTEXT", BUILTIN_WORD_CONTEXT, 0);
+    //add_builtin("CURRENT", BUILTIN_WORD_CURRENT, 0);
+
     // Branches
     add_builtin("BRANCH", BUILTIN_WORD_BRANCH, 0);
     add_builtin("?BRANCH", BUILTIN_WORD_QUESTION_BRANCH, 0);
+
+    // Controlled reference words
+    add_builtin("2*", BUILTIN_WORD_TWO_TIMES, 0);
+
+    // Additional words
+    add_builtin("INCLUDE", BUILTIN_WORD_INCLUDE, 0);
+    add_builtin("FROM", BUILTIN_WORD_FROM, 0);
+
+    // Debug words
+    add_builtin("SEE", BUILTIN_WORD_SEE, 0);
 }

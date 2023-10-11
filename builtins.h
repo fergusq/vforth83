@@ -1,8 +1,6 @@
 #ifndef _BUILTINS_H
 #define _BUILTINS_H
 
-#include "forth.h"
-
 enum BuiltinWord {
     BUILTIN_WORD_LIT = 0,
 
@@ -213,22 +211,17 @@ enum BuiltinWord {
     BUILTIN_WORD_WORDS,
     BUILTIN_WORD_SEAL,
 
-    FIRST_USER_WORD,
+    // Additional words
+
+    BUILTIN_WORD_INCLUDE,
+    BUILTIN_WORD_FROM,
+    
+    // Debug words
+
+    BUILTIN_WORD_SEE,
 };
 
-enum ErrorCode {
-    ERROR_UNKNOWN_ERROR = 1,
-    ERROR_STACK_UNDERFLOW,
-    ERROR_STACK_OVERFLOW,
-    ERROR_RETURN_STACK_UNDERFLOW,
-    ERROR_RETURN_STACK_OVERFLOW,
-    ERROR_MEMORY_ALLOCATION_ERROR,
-    ERROR_DIVISION_BY_ZERO,
-    ERROR_INVALID_MEMORY_ACCESS,
-    ERROR_END_OF_INPUT,
-    ERROR_WORD_NOT_FOUND,
-    ERROR_WORD_NOT_EXECUTABLE,
-};
+#include "forth.h"
 
 typedef void (*add_builtin_func)(char *name, enum BuiltinWord word, uint8_t is_immediate);
 
