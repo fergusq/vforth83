@@ -16,7 +16,7 @@ enum ErrorCode {
     ERROR_FILE_NOT_FOUND,
     ERROR_FILE_NOT_OPEN,
     ERROR_FILE_TOO_LARGE,
-    ERROR_BLOCK_CANNOT_BE_READ,
+    ERROR_UNKNOWN_SYSCALL,
 };
 
 char *get_error_string(enum ErrorCode error);

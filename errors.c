@@ -17,7 +17,7 @@ char *get_error_string(enum ErrorCode error) {
     case ERROR_FILE_NOT_FOUND: return "File Not Found";
     case ERROR_FILE_NOT_OPEN: return "File Not Open";
     case ERROR_FILE_TOO_LARGE: return "File Too Large";
-    case ERROR_BLOCK_CANNOT_BE_READ: return "Block Cannot Be Read";
+    case ERROR_UNKNOWN_SYSCALL: return "Unknown BDOS Syscall";
     default: return "Unknown Error";
     }
 }

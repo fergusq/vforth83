@@ -1,7 +1,10 @@
-forth: builtins.o errors.o forth.o input_stream.o mass_storage.o memory.o stack.o util.o
+forth: builtins.o dos.o errors.o forth.o input_stream.o memory.o stack.o util.o
 	gcc -g -o forth $^
 
 builtins.o: builtins.c builtins.h
+	gcc -g -c $<
+
+dos.o: dos.c dos.h
 	gcc -g -c $<
 
 errors.o: errors.c errors.h
@@ -11,9 +14,6 @@ forth.o: forth.c forth.h
 	gcc -g -c $<
 
 input_stream.o: input_stream.c input_stream.h
-	gcc -g -c $<
-
-mass_storage.o: mass_storage.c mass_storage.h
 	gcc -g -c $<
 
 memory.o: memory.c memory.h

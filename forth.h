@@ -7,7 +7,6 @@ typedef uint16_t ForthValue;
 
 #include "memory.h"
 #include "stack.h"
-#include "mass_storage.h"
 
 #define MAX_INPUT_SIZE 1024
 
@@ -19,7 +18,6 @@ typedef struct _InterpreterState {
 
     // Input buffers
 
-    uint8_t BLOCK_BUFFER[BLOCK_SIZE];
     uint16_t *BLK_var;
 
     uint8_t *INPUT_BUFFER;
@@ -35,7 +33,6 @@ typedef struct _InterpreterState {
     uint16_t *CURRENT_var;
     uint16_t *CONTEXT_var;
     uint16_t *VOC_LINK_var;
-    uint16_t *FILE_var;
 
     // Compiler state
 

@@ -4,7 +4,7 @@
 #include "builtins.h"
 #include "stack.h"
 #include "input_stream.h"
-#include "mass_storage.h"
+#include "dos.h"
 #include "memory.h"
 #include "forth.h"
 #include "errors.h"
@@ -217,19 +217,19 @@ int builtin_divide_mod(InterpreterState *state) {
 
 int builtin_zero_less(InterpreterState *state) {
     pop_to_signed(n);
-    push_from(n < 0);
+    push_from(n < 0 ? -1 : 0);
     return 0;
 }
 
 int builtin_zero_equals(InterpreterState *state) {
     pop_to_signed(n);
-    push_from(n == 0);
+    push_from(n == 0 ? -1 : 0);
     return 0;
 }
 
 int builtin_zero_greater(InterpreterState *state) {
     pop_to_signed(n);
-    push_from(n > 0);
+    push_from(n > 0 ? -1 : 0);
     return 0;
 }
 
@@ -284,7 +284,7 @@ int builtin_semi_colon(InterpreterState *state) {
 int builtin_less_than(InterpreterState *state) {
     pop_to_signed(n2);
     pop_to_signed(n1);
-    push_from(n1 < n2);
+    push_from(n1 < n2 ? -1 : 0);
     return 0;
 }
 
@@ -293,22 +293,18 @@ int builtin_less_than(InterpreterState *state) {
 int builtin_equals(InterpreterState *state) {
     pop_to_unsigned(n2);
     pop_to_unsigned(n1);
-    push_from(n1 == n2);
+    push_from(n1 == n2 ? -1 : 0);
     return 0;
 }
 
 int builtin_greater_than(InterpreterState *state) {
     pop_to_signed(n2);
     pop_to_signed(n1);
-    push_from(n1 > n2);
+    push_from(n1 > n2 ? -1 : 0);
     return 0;
 }
 
-int builtin_to_body(InterpreterState *state) {
-    pop_to_unsigned(addr);
-    push_from(addr + 1);
-    return 0;
-}
+// >BODY
 
 int builtin_to_r(InterpreterState *state) {
     pop_to_unsigned(value);
@@ -425,7 +421,7 @@ int builtin_cr(InterpreterState *state) {
 
 int builtin_create(InterpreterState *state) {
     char *name = read_word(state);
-    uint16_t param_field = add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_VARIABLE, 1);
+    add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_VARIABLE, 1);
     free(name);
     return 0;
 }
@@ -449,7 +445,7 @@ int builtin_d_less_than(InterpreterState *state) {
     pop_to_unsigned(d1a);
     uint32_t d1 = ((uint32_t) d1a << 16) + d1b;
     uint32_t d2 = ((uint32_t) d2a << 16) + d2b;
-    push_from(d1 < d2);
+    push_from(d1 < d2 ? -1 : 0);
 }
 
 // DECIMAL
@@ -778,7 +774,7 @@ int builtin_u_dot(InterpreterState *state) {
 int builtin_u_less_than(InterpreterState *state) {
     pop_to_unsigned(n2);
     pop_to_unsigned(n1);
-    push_from(n1 < n2);
+    push_from(n1 < n2 ? -1 : 0);
     return 0;
 }
 
@@ -807,8 +803,8 @@ int builtin_um_slash_mod(InterpreterState *state) {
 // UPDATE
 
 int builtin_variable(InterpreterState *state) {
-    char *name = read_word(state);
-    uint16_t param_field = add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_VARIABLE, 1);
+    uint8_t *name = read_word(state);
+    add_definition(state->MEMORY, name, 0, DEFINITION_TYPE_VARIABLE, 1);
     allot(state->MEMORY, 2);
     free(name);
     return 0;
@@ -858,6 +854,80 @@ int builtin_right_bracket(InterpreterState *state) {
     return 0;
 }
 
+int builtin_two_store(InterpreterState *state) {
+    pop_to_unsigned(addr);
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    *memory_at16(state->MEMORY, addr) = value1;
+    *memory_at16(state->MEMORY, addr + 2) = value2;
+    return 0;
+}
+
+int builtin_two_fetch(InterpreterState *state) {
+    pop_to_unsigned(addr);
+    push_from(*memory_at16(state->MEMORY, addr));
+    push_from(*memory_at16(state->MEMORY, addr + 2));
+    return 0;
+}
+
+int builtin_two_drop(InterpreterState *state) {
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    return 0;
+}
+
+int builtin_two_dup(InterpreterState *state) {
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    push_from(value1);
+    push_from(value2);
+    push_from(value1);
+    push_from(value2);
+    return 0;
+}
+
+int builtin_two_over(InterpreterState *state) {
+    pop_to_unsigned(value4);
+    pop_to_unsigned(value3);
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    push_from(value1);
+    push_from(value2);
+    push_from(value3);
+    push_from(value4);
+    push_from(value1);
+    push_from(value2);
+    return 0;
+}
+
+int builtin_two_swap(InterpreterState *state) {
+    pop_to_unsigned(value4);
+    pop_to_unsigned(value3);
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    push_from(value3);
+    push_from(value4);
+    push_from(value1);
+    push_from(value2);
+    return 0;
+}
+
+int builtin_two_rot(InterpreterState *state) {
+    pop_to_unsigned(value6);
+    pop_to_unsigned(value5);
+    pop_to_unsigned(value4);
+    pop_to_unsigned(value3);
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    push_from(value3);
+    push_from(value4);
+    push_from(value5);
+    push_from(value6);
+    push_from(value1);
+    push_from(value2);
+    return 0;
+}
+
 int builtin_backward_mark(InterpreterState *state) {
     push_from(state->MEMORY->memory_pointer);
     return 0;
@@ -865,7 +935,7 @@ int builtin_backward_mark(InterpreterState *state) {
 
 int builtin_backward_resolve(InterpreterState *state) {
     pop_to_unsigned(addr);
-    uint16_t offset = state->MEMORY->memory_pointer - addr;
+    uint16_t offset = addr - state->MEMORY->memory_pointer;
     insert16(state->MEMORY, offset);
     return 0;
 }
@@ -886,6 +956,13 @@ int builtin_forward_resolve(InterpreterState *state) {
 int builtin_two_times(InterpreterState *state) {
     pop_to_unsigned(n);
     push_from(n << 1);
+    return 0;
+}
+
+int builtin_not_equal(InterpreterState *state) {
+    pop_to_unsigned(n2);
+    pop_to_unsigned(n1);
+    push_from(n1 != n2 ? -1 : 0);
     return 0;
 }
 
@@ -917,11 +994,83 @@ int builtin_include(InterpreterState *state) {
     return 0;
 }
 
-int builtin_from(InterpreterState *state) {
-    uint8_t *word = read_word(state);
-    int err = open_mass_storage(word);
-    free(word);
-    return err;
+int builtin_dash_rot(InterpreterState *state) {
+    pop_to_unsigned(value3);
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    push_from(value3);
+    push_from(value1);
+    push_from(value2);
+    return 0;
+}
+
+int builtin_tuck(InterpreterState *state) {
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    push_from(value2);
+    push_from(value1);
+    push_from(value2);
+    return 0;
+}
+
+int builtin_nip(InterpreterState *state) {
+    pop_to_unsigned(value2);
+    pop_to_unsigned(value1);
+    push_from(value2);
+    return 0;
+}
+
+int builtin_skip(InterpreterState *state) {
+    pop_to_unsigned(chr);
+    pop_to_unsigned(len);
+    pop_to_unsigned(addr);
+    while (len > 0) {
+        if (*memory_at8(state->MEMORY, addr) != chr) {
+            break;
+        }
+        addr += 1;
+        len -= 1;
+    }
+    push_from(addr);
+    push_from(len);
+    return 0;
+}
+
+int builtin_scan(InterpreterState *state) {
+    pop_to_unsigned(chr);
+    pop_to_unsigned(len);
+    pop_to_unsigned(addr);
+    while (len > 0) {
+        if (*memory_at8(state->MEMORY, addr) == chr) {
+            break;
+        }
+        addr += 1;
+        len -= 1;
+    }
+    push_from(addr);
+    push_from(len);
+    return 0;
+}
+
+int builtin_zero_not_equal(InterpreterState *state) {
+    pop_to_unsigned(value);
+    push_from(value != 0 ? -1 : 0);
+    return 0;
+}
+
+int builtin_bdos(InterpreterState *state) {
+    pop_to_unsigned(syscall);
+    pop_to_unsigned(param);
+    if (syscall > 255) {
+        return ERROR_UNKNOWN_SYSCALL;
+    }
+    SysCallFunction syscall_func = DOS_SYSCALLS[syscall];
+    if (syscall_func == 0) {
+        return ERROR_UNKNOWN_SYSCALL;
+    }
+    uint8_t result = syscall_func(state->MEMORY, param);
+    push_from(result);
+    return 0;
 }
 
 int builtin_see(InterpreterState *state) {
@@ -947,15 +1096,15 @@ int builtin_see(InterpreterState *state) {
                 break;
             }
             if (addr == state->BUILTINS[BUILTIN_WORD_LIT]) {
-                uint16_t value = *memory_at16(state->MEMORY, p + 2);
+                int16_t value = *memory_at16(state->MEMORY, p + 2);
                 printf("LIT %d ", value);
                 i += 2;
             } else if (addr == state->BUILTINS[BUILTIN_WORD_BRANCH]) {
-                uint16_t value = *memory_at16(state->MEMORY, p + 2);
+                int16_t value = *memory_at16(state->MEMORY, p + 2);
                 printf("BRANCH %d ", value);
                 i += 2;
             } else if (addr == state->BUILTINS[BUILTIN_WORD_QUESTION_BRANCH]) {
-                uint16_t value = *memory_at16(state->MEMORY, p + 2);
+                int16_t value = *memory_at16(state->MEMORY, p + 2);
                 printf("?BRANCH %d ", value);
                 i += 2;
             } else {
@@ -1025,7 +1174,7 @@ builtin_func builtins[] = {
     //[BUILTIN_WORD_LESS_SHARP] = builtin_less_sharp,
     [BUILTIN_WORD_EQUALS] = builtin_equals,
     [BUILTIN_WORD_GREATER_THAN] = builtin_greater_than,
-    [BUILTIN_WORD_TO_BODY] = builtin_to_body,
+    //[BUILTIN_WORD_TO_BODY] = builtin_to_body,
     //[BUILTIN_WORD_TO_IN] = builtin_to_in,
     [BUILTIN_WORD_TO_R] = builtin_to_r,
     [BUILTIN_WORD_QUESTION_DUP] = builtin_question_dup,
@@ -1122,6 +1271,16 @@ builtin_func builtins[] = {
     [BUILTIN_WORD_BRACKET_COMPILE] = builtin_bracket_compile,
     [BUILTIN_WORD_RIGHT_BRACKET] = builtin_right_bracket,
 
+    [BUILTIN_WORD_TWO_STORE] = builtin_two_store,
+    [BUILTIN_WORD_TWO_FETCH] = builtin_two_fetch,
+    //[BUILTIN_WORD_TWO_CONSTANT] = builtin_two_constant,
+    [BUILTIN_WORD_TWO_DROP] = builtin_two_drop,
+    [BUILTIN_WORD_TWO_DUP] = builtin_two_dup,
+    [BUILTIN_WORD_TWO_OVER] = builtin_two_over,
+    [BUILTIN_WORD_TWO_ROT] = builtin_two_rot,
+    [BUILTIN_WORD_TWO_SWAP] = builtin_two_swap,
+    //[BUILTIN_WORD_TWO_VARIABLE] = builtin_two_variable,
+
     [BUILTIN_WORD_BACKWARD_MARK] = builtin_backward_mark,
     [BUILTIN_WORD_BACKWARD_RESOLVE] = builtin_backward_resolve,
     [BUILTIN_WORD_FORWARD_MARK] = builtin_forward_mark,
@@ -1131,9 +1290,16 @@ builtin_func builtins[] = {
     [BUILTIN_WORD_BRANCH] = builtin_error_not_executable,
 
     [BUILTIN_WORD_TWO_TIMES] = builtin_two_times,
+    [BUILTIN_WORD_NOT_EQUAL] = builtin_not_equal,
 
     [BUILTIN_WORD_INCLUDE] = builtin_include,
-    [BUILTIN_WORD_FROM] = builtin_from,
+    [BUILTIN_WORD_DASH_ROT] = builtin_dash_rot,
+    [BUILTIN_WORD_TUCK] = builtin_tuck,
+    [BUILTIN_WORD_NIP] = builtin_nip,
+    [BUILTIN_WORD_SKIP] = builtin_skip,
+    [BUILTIN_WORD_SCAN] = builtin_scan,
+    [BUILTIN_WORD_ZERO_NOT_EQUAL] = builtin_zero_not_equal,
+    [BUILTIN_WORD_BDOS] = builtin_bdos,
 
     [BUILTIN_WORD_SEE] = builtin_see,
 };
@@ -1180,7 +1346,7 @@ void add_builtins(add_builtin_func add_builtin) {
     add_builtin("<#", BUILTIN_WORD_LESS_SHARP, 0);
     add_builtin("=", BUILTIN_WORD_EQUALS, 0);
     add_builtin(">", BUILTIN_WORD_GREATER_THAN, 0);
-    add_builtin(">BODY", BUILTIN_WORD_TO_BODY, 0);
+    //add_builtin(">BODY", BUILTIN_WORD_TO_BODY, 0);
     //add_builtin(">IN", BUILTIN_WORD_TO_IN, 0);
     add_builtin(">R", BUILTIN_WORD_TO_R, 0);
     add_builtin("?DUP", BUILTIN_WORD_QUESTION_DUP, 0);
@@ -1277,6 +1443,17 @@ void add_builtins(add_builtin_func add_builtin) {
     add_builtin("[COMPILE]", BUILTIN_WORD_BRACKET_COMPILE, 1);
     add_builtin("]", BUILTIN_WORD_RIGHT_BRACKET, 0);
 
+    // Double words
+    add_builtin("2!", BUILTIN_WORD_TWO_STORE, 0);
+    add_builtin("2@", BUILTIN_WORD_TWO_FETCH, 0);
+    //add_builtin("2CONSTANT", BUILTIN_WORD_TWO_CONSTANT, 0);
+    add_builtin("2DROP", BUILTIN_WORD_TWO_DROP, 0);
+    add_builtin("2DUP", BUILTIN_WORD_TWO_DUP, 0);
+    add_builtin("2OVER", BUILTIN_WORD_TWO_OVER, 0);
+    add_builtin("2ROT", BUILTIN_WORD_TWO_ROT, 0);
+    add_builtin("2SWAP", BUILTIN_WORD_TWO_SWAP, 0);
+    //add_builtin("2VARIABLE", BUILTIN_WORD_TWO_VARIABLE, 0);
+
     // Marks and resolves
     add_builtin("<MARK", BUILTIN_WORD_BACKWARD_MARK, 0);
     add_builtin("<RESOLVE", BUILTIN_WORD_BACKWARD_RESOLVE, 0);
@@ -1292,9 +1469,18 @@ void add_builtins(add_builtin_func add_builtin) {
     // Controlled reference words
     add_builtin("2*", BUILTIN_WORD_TWO_TIMES, 0);
 
+    // Uncrontrolled reference words
+    add_builtin("<>", BUILTIN_WORD_NOT_EQUAL, 0);
+
     // Additional words
     add_builtin("INCLUDE", BUILTIN_WORD_INCLUDE, 0);
-    add_builtin("FROM", BUILTIN_WORD_FROM, 0);
+    add_builtin("-ROT", BUILTIN_WORD_DASH_ROT, 0);
+    add_builtin("TUCK", BUILTIN_WORD_TUCK, 0);
+    add_builtin("NIP", BUILTIN_WORD_NIP, 0);
+    add_builtin("SKIP", BUILTIN_WORD_SKIP, 0);
+    add_builtin("SCAN", BUILTIN_WORD_SCAN, 0);
+    add_builtin("0<>", BUILTIN_WORD_ZERO_NOT_EQUAL, 0);
+    add_builtin("BDOS", BUILTIN_WORD_BDOS, 0);
 
     // Debug words
     add_builtin("SEE", BUILTIN_WORD_SEE, 0);

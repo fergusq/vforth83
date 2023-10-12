@@ -83,7 +83,6 @@ void create_forth_vocabulary() {
     state->CURRENT_var = memory_at16(state->MEMORY, add_variable("CURRENT"));
     state->VOC_LINK_var = memory_at16(state->MEMORY, add_variable("VOC-LINK"));
     add_constant("#VOCS", NUM_VOCS);
-    state->FILE_var = memory_at16(state->MEMORY, add_variable("FILE"));
 
     *state->CURRENT_var = *state->MEMORY->CURRENT_var;
     state->MEMORY->CURRENT_var = state->CURRENT_var;
@@ -301,7 +300,7 @@ int main(int argc, char *argv[]) {
             continue;
         }
         err = interpret_from_input_stream();
-        if (err != 0) printf(" ok");
+        if (err == 0) printf(" ok");
         printf("\n");
     }
     free_forth();

@@ -211,10 +211,21 @@ enum BuiltinWord {
     BUILTIN_WORD_WORDS,
     BUILTIN_WORD_SEAL,
 
+    // Uncontrolled word set
+
+    BUILTIN_WORD_NOT_EQUAL,
+
     // Additional words
 
     BUILTIN_WORD_INCLUDE,
     BUILTIN_WORD_FROM,
+    BUILTIN_WORD_DASH_ROT,
+    BUILTIN_WORD_TUCK,
+    BUILTIN_WORD_NIP,
+    BUILTIN_WORD_SKIP,
+    BUILTIN_WORD_SCAN,
+    BUILTIN_WORD_ZERO_NOT_EQUAL,
+    BUILTIN_WORD_BDOS,
     
     // Debug words
 
