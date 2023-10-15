@@ -226,17 +226,25 @@ enum BuiltinWord {
     BUILTIN_WORD_SCAN,
     BUILTIN_WORD_ZERO_NOT_EQUAL,
     BUILTIN_WORD_BDOS,
+    BUILTIN_WORD_UPPER,
     
     // Debug words
 
     BUILTIN_WORD_SEE,
+
+    MAX_BUILTINS,
 };
 
 #include "forth.h"
 
-typedef void (*add_builtin_func)(char *name, enum BuiltinWord word, uint8_t is_immediate);
+// Returns -1 if the builtin is an exit builtin, 0 if success, 1 if error
+typedef int (*BuiltinFunction)(InterpreterState *state);
 
-void add_builtins(add_builtin_func add_builtin);
+extern BuiltinFunction BUILTINS[MAX_BUILTINS];
+
+typedef void (*AddBuiltinFunction)(char *name, enum BuiltinWord word, uint8_t is_immediate);
+
+void add_builtins(AddBuiltinFunction add_builtin);
 
 int execute_builtin(InterpreterState *state, enum BuiltinWord word);
 

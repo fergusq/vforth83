@@ -13,6 +13,7 @@ typedef uint16_t ForthValue;
 typedef struct _InterpreterState {
     Stack *RETURN_STACK;
     Stack *DATA_STACK;
+    Stack *DEBUG_CALL_STACK;
 
     Memory *MEMORY;
 
@@ -32,6 +33,7 @@ typedef struct _InterpreterState {
     uint16_t *LAST_var;
     uint16_t *CURRENT_var;
     uint16_t *CONTEXT_var;
+    uint16_t *CAPS_var;
     uint16_t *VOC_LINK_var;
 
     // Compiler state
@@ -40,7 +42,7 @@ typedef struct _InterpreterState {
 
     // Builtin compilation addresses
 
-    uint16_t BUILTINS[200];
+    uint16_t BUILTINS[256];
 } InterpreterState;
 
 #include "builtins.h"

@@ -5,10 +5,11 @@
 
 enum DefinitionType {
     DEFINITION_TYPE_BUILTIN = 0,
-    DEFINITION_TYPE_COLON = 1,
-    DEFINITION_TYPE_VARIABLE = 2,
-    DEFINITION_TYPE_CONSTANT = 3,
-    DEFINITION_TYPE_DOES = 4,
+    DEFINITION_TYPE_VARIABLE,
+    DEFINITION_TYPE_CONSTANT,
+    DEFINITION_TYPE_CALL,
+    DEFINITION_TYPE_DOES,
+    DEFINITION_TYPE_DEFERRED,
 };
 
 typedef struct _Definition {
@@ -25,14 +26,26 @@ typedef struct _Definition {
     uint16_t code_p; // pointer within virtual memory, used for does> definitions
 
     // Parameter field
-    uint16_t parameter_p; // pointer within virtual memory
+    uint16_t pfa; // pointer within virtual memory
 } Definition;
 
-#define IS_IMMEDIATE_OFFSET 2
-#define PREVIOUS_P_OFFSET 3
-#define TYPE_OFFSET 5
-#define CODE_P_OFFSET 6
-#define PARAMETER_P_OFFSET 8
+//#define IS_IMMEDIATE_OFFSET 2
+//#define PREVIOUS_P_OFFSET 3
+//#define TYPE_OFFSET 5
+//#define CODE_P_OFFSET 6
+//#define PARAMETER_P_OFFSET 8
+
+#define MAX_NAME_LENGTH 25
+#define TO_BODY(p) ((p) + 3)
+#define FROM_BODY(p) ((p) - 3)
+#define TO_LINK(p) ((p) - 2)
+#define FROM_LINK(p) ((p) + 2)
+#define TO_IMMEDIATE_FLAG(p) ((p) - 3)
+#define FROM_IMMEDIATE_FLAG(p) ((p) + 3)
+#define TO_NAME(p) TO_IMMEDIATE_FLAG(p) - MAX_NAME_LENGTH - 1
+#define FROM_NAME(p) FROM_IMMEDIATE_FLAG(p + MAX_NAME_LENGTH + 1)
+#define TO_CODE_P(p) ((p) + 1)
+#define FROM_CODE_P(p) ((p) - 1)
 
 #define MEMORY_SIZE 65536
 #define NUM_VOCS 8
@@ -58,7 +71,7 @@ uint16_t allot(Memory *memory, int16_t n);
 uint16_t insert8(Memory *memory, uint8_t value);
 uint16_t insert16(Memory *memory, uint16_t value);
 
-uint16_t add_definition(Memory *memory, char *name, uint8_t is_immediate, enum DefinitionType type, uint8_t set_latest);
+uint16_t add_definition(Memory *memory, char *name, uint8_t is_immediate, enum DefinitionType type, uint8_t append_to_vocabulary);
 
 Definition *get_definition(Memory *memory, uint16_t p);
 

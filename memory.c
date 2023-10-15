@@ -41,7 +41,7 @@ uint16_t insert16(Memory *memory, uint16_t value) {
 /**
  * Inserts the definition into the memory with the following schema:
  * 
- * | name | name_length | is_immediate | previous_p | type | parameter field |
+ * | name_length (1 byte) | name (25) | is_immediate (1) | previous_p (2) | type (1) | code_p (2) | parameter field (0) |
  * 
  * Returns the pointer to the parameter field. Sets latest_definition_p to point to the name_length field.
  * 
@@ -49,37 +49,42 @@ uint16_t insert16(Memory *memory, uint16_t value) {
  */
 uint16_t add_definition(Memory *memory, char *name, uint8_t is_immediate, enum DefinitionType type, uint8_t append_to_vocabulary) {
     uint16_t name_length = strlen(name);
+    if (name_length > MAX_NAME_LENGTH) {
+        name_length = MAX_NAME_LENGTH;
+    }
     uint16_t previous_p = *memory_at16(memory, *memory->CURRENT_var);
     //printf("Defining %s at %i prev %i\n", name, memory->memory_pointer, previous_p);
+    uint16_t nfa = insert8(memory, name_length);
     for (int i = 0; i < name_length; i++) {
         insert8(memory, name[i]);
     }
-    uint16_t head_p = insert16(memory, name_length);
+    allot(memory, MAX_NAME_LENGTH - name_length);
     insert8(memory, is_immediate);
     insert16(memory, previous_p);
     insert8(memory, type);
-    uint16_t parameter_p = insert16(memory, 0) + 2;
+    uint16_t pfa = insert16(memory, 0) + 2;
 
-    *memory->LAST_var = head_p;
+    *memory->LAST_var = nfa;
     if (append_to_vocabulary) {
-        *memory_at16(memory, *memory->CURRENT_var) = head_p;
+        *memory_at16(memory, *memory->CURRENT_var) = nfa;
     }
-    return parameter_p;
+    return pfa;
 }
 
-Definition *get_definition(Memory *memory, uint16_t p) {
+Definition *get_definition(Memory *memory, uint16_t nfa) {
+    uint16_t cfa = FROM_NAME(nfa);
     Definition *definition = malloc(sizeof(*definition));
-    definition->name_length = *memory_at16(memory, p);
+    definition->name_length = *memory_at8(memory, nfa);
     definition->name = malloc(definition->name_length + 1);
     for (int i = 0; i < definition->name_length; i++) {
-        definition->name[i] = *memory_at8(memory, p - definition->name_length + i);
+        definition->name[i] = *memory_at8(memory, nfa + i + 1);
     }
     definition->name[definition->name_length] = '\0';
-    definition->is_immediate = *memory_at8(memory, p + IS_IMMEDIATE_OFFSET);
-    definition->previous_p = *memory_at16(memory, p + PREVIOUS_P_OFFSET);
-    definition->type = *memory_at8(memory, p + TYPE_OFFSET);
-    definition->code_p = *memory_at16(memory, p + CODE_P_OFFSET);
-    definition->parameter_p =  p + PARAMETER_P_OFFSET;
+    definition->is_immediate = *memory_at8(memory, TO_IMMEDIATE_FLAG(cfa));
+    definition->previous_p = *memory_at16(memory, TO_LINK(cfa));
+    definition->type = *memory_at8(memory, cfa);
+    definition->code_p = *memory_at16(memory, TO_CODE_P(cfa));
+    definition->pfa = TO_BODY(cfa);
     return definition;
 }
 
@@ -93,7 +98,7 @@ Definition *find_word(Memory *memory, uint8_t *name) {
         uint16_t p = *memory_at16(memory, context[i]);
         while (p != 0) {
             Definition *definition = get_definition(memory, p);
-            //printf("Searching for %s, looking at %i %s %i next %i\n", name, p, definition->name, definition->parameter_p, definition->previous_p);
+            //printf("Searching for %s in %d, looking at %i %s %i next %i\n", name, i, p, definition->name, definition->pfa, definition->previous_p);
             if (strcmp(definition->name, name) == 0) {
                 free(normalized_name);
                 return definition;

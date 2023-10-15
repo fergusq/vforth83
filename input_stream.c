@@ -1,9 +1,9 @@
 #include <malloc.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "forth.h"
 #include "input_stream.h"
-#include "mass_storage.h"
 #include "errors.h"
 
 int read_line_to_input_buffer(InterpreterState *state) {
@@ -24,6 +24,7 @@ int read_line_to_input_buffer_from_file(InterpreterState *state, FILE *file) {
         state->INPUT_BUFFER[*state->NUMBER_TIB_var] = c;
         *state->NUMBER_TIB_var += 1;
     }
+    memset(&state->INPUT_BUFFER[*state->NUMBER_TIB_var], ' ', MAX_INPUT_SIZE - *state->NUMBER_TIB_var);
     if (c == EOF) {
         return ERROR_END_OF_INPUT;
     }
@@ -31,11 +32,11 @@ int read_line_to_input_buffer_from_file(InterpreterState *state, FILE *file) {
 }
 
 uint8_t read_char(InterpreterState *state) {
-    if (*state->BLK_var > 0 && *state->TO_IN_var < BLOCK_SIZE) {
+    /*if (*state->BLK_var > 0 && *state->TO_IN_var < BLOCK_SIZE) {
         uint8_t c = state->BLOCK_BUFFER[*state->TO_IN_var];
         *state->TO_IN_var += 1;
         return c;
-    } else {
+    } else*/ {
         //if (TIB == 0) {
         //    read_line_to_input_buffer();
         //}

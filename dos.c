@@ -244,7 +244,7 @@ uint8_t function_11H_Find_First_File(Memory *memory, uint16_t fcb_pointer) {
     glob_offset = 0;
     FCB *result = xfcb ? DTA - FCB_EXTENDED_FCB_FLAG_OFFSET : DTA;
     empty_fcb(result);
-    set_filename(&result->file_name, &result->file_extension, globbuf.gl_pathv[glob_offset]);
+    set_filename(result->file_name, result->file_extension, globbuf.gl_pathv[glob_offset]);
     glob_offset += 1;
     previous_glob_fcb = fcb_pointer;
     return 0x00;
@@ -260,7 +260,7 @@ uint8_t function_12H_Find_Next_File(Memory *memory, uint16_t fcb_pointer) {
     uint8_t xfcb = is_xfcb(memory_at8(memory, fcb_pointer));
     FCB *result = xfcb ? DTA - FCB_EXTENDED_FCB_FLAG_OFFSET : DTA;
     empty_fcb(result);
-    set_filename(&result->file_name, &result->file_extension, globbuf.gl_pathv[glob_offset]);
+    set_filename(result->file_name, result->file_extension, globbuf.gl_pathv[glob_offset]);
     glob_offset += 1;
     return 0x00;
 }
