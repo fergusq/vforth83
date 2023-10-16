@@ -85,23 +85,57 @@ char *get_filename(FCB *fcb) {
     return filename;
 }
 
+char *fix_wildcards(uint8_t *str, uint8_t length) {
+    uint8_t ends_in_wildcard = 0;
+    if (str[length-1] == '?') {
+        while (length > 0 && str[length-1] == '?') length--;
+        ends_in_wildcard = 1;
+    } else if (str[length-1] == ' ') {
+        while (length > 0 && str[length-1] == ' ') length--;
+    }
+    char *new_str = malloc(length + ends_in_wildcard + 1);
+    for (int i = 0; i < length; i++) {
+        new_str[i] = str[i];
+    }
+    if (ends_in_wildcard) {
+        new_str[length] = '*';
+        new_str[length+1] = '\0';
+    } else {
+        new_str[length] = '\0';
+    }
+    return new_str;
+}
+
+char *get_glob_filename(FCB *fcb) {
+    char *name = fix_wildcards(fcb->file_name, 8);
+    char *extension = fix_wildcards(fcb->file_extension, 3);
+    char *filename = malloc(strlen(name) + strlen(extension) + 1);
+    sprintf(filename, "%s.%s", name, extension);
+    free(name);
+    free(extension);
+    return filename;
+}
+
 char *get_real_filename(char *dos_filename) {
     if (dos_filename[5] == '~') {
         char pattern[11];
         memcpy(pattern, dos_filename, 5);
         pattern[5] = '*';
-        if (dos_filename[8] == 0) {
-            pattern[6] = '.';
-        }
-        pattern[6] = '.';
-        pattern[7] = dos_filename[9];
-        if (dos_filename[10] == '~') {
-            pattern[8] = '*';
-            pattern[9] = 0;
+        if (dos_filename[9] == ' ') {
+            pattern[6] = '\0';
         } else {
-            pattern[8] = dos_filename[10];
-            pattern[9] = dos_filename[11];
-            pattern[10] = 0;
+            pattern[6] = '.';
+            pattern[7] = dos_filename[9];
+            if (dos_filename[10] == '~') {
+                pattern[8] = '*';
+                pattern[9] = 0;
+            } else {
+                int i;
+                for (i = 0; i < 3 && dos_filename[10+i] != ' '; i++) {
+                    pattern[8+i] = dos_filename[10+i];
+                }
+                pattern[8+i] = 0;
+            }
         }
         glob_t globbuf;
         glob(pattern, GLOB_NOESCAPE, NULL, &globbuf);
@@ -112,6 +146,8 @@ char *get_real_filename(char *dos_filename) {
             set_filename(dos_filename2, dos_filename2 + 9, filename2);
             if (dos_filename2[9] != ' ') {
                 dos_filename2[8] = '.';
+            } else {
+                dos_filename2[8] = '\0';
             }
             if (strcmp(dos_filename, dos_filename2) == 0) {
                 char *filename = strdup(filename2);
@@ -121,7 +157,20 @@ char *get_real_filename(char *dos_filename) {
         }
         return NULL;
     } else {
-        return strdup(dos_filename);
+        char *filename = malloc(13);
+        int i = 0;
+        for (i = 0; i < 8 && dos_filename[i] != ' '; i++) {
+            filename[i] = dos_filename[i];
+        }
+        if (dos_filename[9] == ' ') {
+            filename[i] = '\0';
+        } else {
+            filename[i++] = '.';
+            for (int j = 0; j < 3 && dos_filename[9+j] != ' '; j++) {
+                filename[i++] = dos_filename[9+j];
+            }
+        }
+        return filename;
     }
 }
 
@@ -188,12 +237,12 @@ FILE *OPEN_FILES[MAX_OPEN_FILES] = {0};
 
 uint8_t function_0FH_Open_File(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved != 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] != 0) { // Check if this is already associated with a file handle
         return 0xFF;
     }
     char *filename = get_filename(fcb);
     char *real_filename = get_real_filename(filename);
-    FILE *file = fopen(real_filename, "rw");
+    FILE *file = fopen(real_filename, "r");
     free(filename);
     if (file == NULL) {
         return 0xFF;
@@ -202,7 +251,7 @@ uint8_t function_0FH_Open_File(Memory *memory, uint16_t fcb_pointer) {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (OPEN_FILES[i] == NULL) {
             OPEN_FILES[i] = file;
-            fcb->reserved = i + 1;
+            fcb->reserved[0] = i + 1;
             fcb->record_size = 128;
             fcb->drive_identifier = 0;
             fcb->current_block_number = 0;
@@ -221,12 +270,12 @@ uint8_t function_0FH_Open_File(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_10H_Close_File(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
         return 0xFF;
     }
-    fclose(OPEN_FILES[fcb->reserved - 1]);
-    OPEN_FILES[fcb->reserved - 1] = NULL;
-    fcb->reserved = 0;
+    fclose(OPEN_FILES[fcb->reserved[0] - 1]);
+    OPEN_FILES[fcb->reserved[0] - 1] = NULL;
+    fcb->reserved[0] = 0;
     return 0x00;
 }
 
@@ -237,13 +286,18 @@ uint16_t previous_glob_fcb = 0;
 uint8_t function_11H_Find_First_File(Memory *memory, uint16_t fcb_pointer) {
     uint8_t xfcb = is_xfcb(memory_at8(memory, fcb_pointer));
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    char *filename = get_filename(fcb);
+    char *filename = get_glob_filename(fcb);
+    printf("Searching for `%s'\n", filename);
     if (glob_offset > 0) globfree(&globbuf);
     glob(filename, GLOB_NOESCAPE, NULL, &globbuf);
     free(filename);
     glob_offset = 0;
+    if (glob_offset >= globbuf.gl_pathc) {
+        return 0xFF;
+    }
     FCB *result = xfcb ? DTA - FCB_EXTENDED_FCB_FLAG_OFFSET : DTA;
     empty_fcb(result);
+    printf("Found for `%s'\n", globbuf.gl_pathv[glob_offset]);
     set_filename(result->file_name, result->file_extension, globbuf.gl_pathv[glob_offset]);
     glob_offset += 1;
     previous_glob_fcb = fcb_pointer;
@@ -288,10 +342,10 @@ uint8_t function_13H_Delete_File(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_14H_Sequential_Read(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
         return 0xFF;
     }
-    FILE *file = OPEN_FILES[fcb->reserved - 1];
+    FILE *file = OPEN_FILES[fcb->reserved[0] - 1];
     if (file == NULL) {
         return 0xFF;
     }
@@ -324,10 +378,10 @@ uint8_t function_14H_Sequential_Read(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_15H_Sequential_Write(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
         return 0xFF;
     }
-    FILE *file = OPEN_FILES[fcb->reserved - 1];
+    FILE *file = OPEN_FILES[fcb->reserved[0] - 1];
     if (file == NULL) {
         return 0xFF;
     }
@@ -351,7 +405,7 @@ uint8_t function_15H_Sequential_Write(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_16H_Create_File_With_FCB(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved != 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] != 0) { // Check if this is already associated with a file handle
         return 0xFF;
     }
     char *filename = get_filename(fcb);
@@ -366,7 +420,7 @@ uint8_t function_16H_Create_File_With_FCB(Memory *memory, uint16_t fcb_pointer) 
     for (int i = 0; i < MAX_OPEN_FILES; i++) {
         if (OPEN_FILES[i] == NULL) {
             OPEN_FILES[i] = file;
-            fcb->reserved = i + 1;
+            fcb->reserved[0] = i + 1;
             fcb->record_size = 128;
             fcb->drive_identifier = 0;
             fcb->current_block_number = 0;
@@ -389,10 +443,10 @@ uint8_t function_1AH_Set_DTA_Address(Memory *memory, uint16_t dta) {
 
 uint8_t function_21H_Random_Read(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
         return 0xFF;
     }
-    FILE *file = OPEN_FILES[fcb->reserved - 1];
+    FILE *file = OPEN_FILES[fcb->reserved[0] - 1];
     if (file == NULL) {
         return 0xFF;
     }
@@ -427,10 +481,10 @@ uint8_t function_21H_Random_Read(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_22H_Random_Write(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
         return 0xFF;
     }
-    FILE *file = OPEN_FILES[fcb->reserved - 1];
+    FILE *file = OPEN_FILES[fcb->reserved[0] - 1];
     if (file == NULL) {
         return 0xFF;
     }
@@ -456,7 +510,7 @@ uint8_t function_22H_Random_Write(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_23H_Get_File_Size(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved != 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] != 0) { // Check if this is already associated with a file handle
         return 0xFF;
     }
     char *filename = get_filename(fcb);

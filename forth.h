@@ -57,7 +57,7 @@ void create_forth_vocabulary();
 
 int interpret_from_input_stream();
 
-void interpret_from_memory();
+int interpret_from_memory();
 
 int execute_word(uint16_t p);
 

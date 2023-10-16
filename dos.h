@@ -29,7 +29,7 @@ typedef struct _FCB {
     uint32_t file_size;
     uint16_t data_stamp;
     uint16_t time_stamp;
-    uint16_t reserved;
+    uint8_t reserved[8];
     uint8_t current_record_number;
     uint8_t random_record_number;
 } __attribute__((packed)) FCB;
@@ -46,7 +46,7 @@ typedef struct _XFCB {
     uint32_t file_size;
     uint16_t data_stamp;
     uint16_t time_stamp;
-    uint16_t reserved2;
+    uint8_t reserved2[8];
     uint8_t current_record_number;
     uint8_t random_record_number;
 } __attribute__((packed)) XFCB;

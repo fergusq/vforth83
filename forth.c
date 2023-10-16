@@ -33,6 +33,8 @@ void init_forth() {
     state->DEBUG_CALL_STACK = create_stack();
     state->MEMORY = create_memory();
     state->program_counter = 0;
+
+    allot(state->MEMORY, 2*1024);
 }
 
 void free_forth() {
@@ -114,19 +116,22 @@ void create_forth_vocabulary() {
     }
 }
 
-void execute_system() {
-    FILE *file = fopen("system.f", "r");
+void execute_system(char *filename) {
+    FILE *file = fopen(filename, "r");
     if (file == 0) {
-        printf("error: could not open system.f\n");
+        printf("error: could not open %s\n", filename);
         return;
     }
 
     // Read line by line and interpret
     while (1) {
-        int err = read_line_to_input_buffer_from_file(state, file);
+        int err = read_paragraph_to_input_buffer_from_file(state, file);
         if (err == ERROR_END_OF_INPUT) break;
-        else if (err != 0) print_error(err);
-        interpret_from_input_stream();
+        else if (err != 0) {
+            print_error(err);
+            break;
+        }
+        if (interpret_from_input_stream() != 0) break;
     }
 
     fclose(file);
@@ -159,7 +164,7 @@ int interpret_from_input_stream() {
             free(word);
             word = word_upper;
         }
-        //printf("Executing %s from input stream\n", word);
+        if (TRACE) printf("Executing %s from input stream\n", word);
         Definition *definition = find_word(state->MEMORY, word);
         if (definition == 0) {
             // Try parsing it as a number
@@ -186,7 +191,7 @@ int interpret_from_input_stream() {
                 error = 1;
                 break;
             } else {
-                if (sign == -1) value |= 1 << 15;
+                if (sign == -1) value = (1 << 16) - value;
                 if (*state->STATE_var != 0) {
                     insert16(state->MEMORY, state->BUILTINS[BUILTIN_WORD_LIT]);
                     insert16(state->MEMORY, value);
@@ -202,7 +207,7 @@ int interpret_from_input_stream() {
             free(word);
             free_definition(definition);
         } else {
-            //printf("Executing %d\n", FROM_BODY(definition->parameter_p));
+            //if (TRACE) printf("Executing %d\n", FROM_BODY(definition->pfa));
             int ret = execute_word(FROM_BODY(definition->pfa));
             free_definition(definition);
             if (ret == -1) {
@@ -221,16 +226,9 @@ int interpret_from_input_stream() {
     return error;
 }
 
-void interpret_from_memory() {
+int interpret_from_memory() {
     while (1) {
         uint16_t cfa = *memory_at16(state->MEMORY, state->program_counter);
-        if (TRACE) {
-            Definition *definition = get_definition(state->MEMORY, TO_NAME(cfa));
-            printf("Executing %d %s at %d", cfa, definition->name, state->program_counter);
-            print_stack_trace();
-            printf("\n");
-            free_definition(definition);
-        }
         state->program_counter += 2;
         if (cfa == state->BUILTINS[BUILTIN_WORD_LIT]) {
             uint16_t num = *memory_at16(state->MEMORY, state->program_counter);
@@ -254,7 +252,7 @@ void interpret_from_memory() {
         } else {
             int ret = execute_word(cfa);
             if (ret == -1) {
-                break;
+                return -1;
             } else if (ret > 0) {
                 Definition *definition = get_definition(state->MEMORY, TO_NAME(cfa));
                 char *message = get_error_string(ret);
@@ -266,11 +264,19 @@ void interpret_from_memory() {
             }
         }
     }
+    return 0;
 }
 
 // *** Execution ***
 
 int execute_word(uint16_t cfa) {
+    if (TRACE) {
+        Definition *definition = get_definition(state->MEMORY, TO_NAME(cfa));
+        printf("Executing %d %s at %d", cfa, definition->name, state->program_counter);
+        print_stack_trace();
+        printf("\n");
+        free_definition(definition);
+    }
     enum DefinitionType type = *memory_at8(state->MEMORY, cfa);
     if (type == DEFINITION_TYPE_VARIABLE) {
         // Variables push their parameter field address to the stack
@@ -296,7 +302,7 @@ int execute_word(uint16_t cfa) {
         
         // If we are not already executing a function, start executing it now
         if (state->RETURN_STACK->size == 1) {
-            interpret_from_memory();
+            return interpret_from_memory();
         }
         return 0;
     } else if (type == DEFINITION_TYPE_DEFERRED) {
@@ -304,20 +310,24 @@ int execute_word(uint16_t cfa) {
         return execute_word(*memory_at16(state->MEMORY, TO_BODY(cfa)));
     } else {
         // This should never happen
-        return 1;
+        return ERROR_UNKNOWN_DEFINITION_TYPE;
     }
 }
 
 void usage(FILE *file, char *program_name) {
-    fprintf(file, "usage: %s [-M MEMORY_FILE] [-t]\n", program_name);
+    fprintf(file, "usage: %s [-s SYSTEM_FILE] [-M MEMORY_FILE] [-t]\n", program_name);
 }
 
 int main(int argc, char *argv[]) {
     char *memory_file = 0;
+    char *system_file = "system.f";
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(stdout, argv[0]);
             return 0;
+        } else if (strcmp(argv[i], "-s") == 0) {
+            system_file = argv[i+1];
+            i += 1;
         } else if (strcmp(argv[i], "-M") == 0) {
             memory_file = argv[i+1];
             i += 1;
@@ -331,7 +341,7 @@ int main(int argc, char *argv[]) {
     }
     init_forth();
     create_forth_vocabulary();
-    execute_system();
+    execute_system(system_file);
 
     // Save memory to file
     if (memory_file != 0) {

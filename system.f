@@ -1,9 +1,8 @@
-: ? DUP . ;
+: ? @ . ;
 : 2? 2DUP SWAP . . ;
 : 8* 8 * ;
 : PAUSE ;
 : NOOP ;
-: BOUNDS OVER + SWAP ;
 
 .( Constants ) 10 EMIT
 
@@ -13,7 +12,13 @@
 64 CONSTANT C/L
 16 CONSTANT L/SCR
 
+.( Comments )
+
+: \ >IN @ NEGATE C/L MOD >IN +! ;
+
 .( Block I/O Constants )
+
+\ These have been copied from KERNEL86.BLK
 
     2 CONSTANT #BUFFERS
  1024 CONSTANT B/BUF
@@ -30,10 +35,6 @@ FIRST >SIZE - CONSTANT INIT-R0
 : BUFFER#    ( n -- adr )   8* >BUFFERS +   ;
 : >UPDATE    ( -- adr )   1 BUFFER# 6 +  ;
 
-.( Comments )
-
-: \ >IN @ NEGATE C/L MOD >IN +! ;
-
 .( Variables ) 10 EMIT
 
 VARIABLE  #OUT        ( NUMBER OF CHARACTERS EMITTED )
@@ -43,6 +44,8 @@ VARIABLE  HLD         ( POINTS TO LAST CHARACTER HELD IN PAD )
 VARIABLE  FILE        ( POINTS TO FCB OF CURRENTLY OPEN FILE )
 VARIABLE  IN-FILE     ( POINTS TO FCB OF CURRENTLY OPEN FILE )
 VARIABLE  PRINTING
+
+VARIABLE END?
 
 TRUE CAPS !
 
@@ -75,8 +78,19 @@ TRUE CAPS !
 : (+LOOP) R> R> ROT + DUP R@ = -ROT >R >R ;
 : (LOOP-EXIT) R> R> R> 2DROP >R ;
 : I R> R@ SWAP >R ;
-: (LEAVE) R> R> DROP R@ >R >R ;
+: (LEAVE) R> R> DROP R@ 1- >R >R ;
 : LEAVE COMPILE (LEAVE) ; IMMEDIATE
+: (?LEAVE) IF R> R> DROP R@ >R >R THEN ;
+: ?LEAVE COMPILE (?LEAVE) ; IMMEDIATE
+
+.( Deferred words ) 10 EMIT
+
+: CRASH ."  Uninitialized execution vector." ABORT ;
+: DEFER CREATE ['] CRASH HERE !  2 ALLOT  5 LAST @ NAME> C! ;
+: (IS) R@ @ >BODY ! R> 2+ >R ;
+: IS STATE @ IF COMPILE (IS) ELSE ' >BODY ! THEN ; IMMEDIATE
+
+DEFER BLOCK
 
 .( Misc commands ) 10 EMIT
 
@@ -100,16 +114,19 @@ TRUE CAPS !
 
 .( Parsing ) 10 EMIT
 
-: SOURCE ( addr len ) BLK @ ?DUP IF ( BLOCK B/BUF ) ELSE TIB #TIB @ THEN  ;
+\ These have been copied from KERNEL86.BLK
+
+: SOURCE ( addr len ) BLK @ ?DUP IF BLOCK B/BUF ELSE TIB #TIB @ THEN  ;
 : /STRING ( addr len n -- addr' len' ) OVER MIN ROT OVER + -ROT - ;
 : PARSE      ( char -- addr len ) >R SOURCE      >IN @ /STRING         OVER SWAP R> SCAN >R OVER - DUP R>     0<>   - >IN +! ;
 : PARSE-WORD ( char -- addr len ) >R SOURCE TUCK >IN @ /STRING R@ SKIP OVER SWAP R> SCAN >R OVER - ROT R> DUP 0<> + - >IN ! ;
 : 'WORD ( -- addr ) HERE ;
 : WORD ( char -- addr ) ( Parse word ) PARSE-WORD ( Insert into 'WORD as a counted string) 'WORD PLACE ( Insert a space at the end ) 'WORD COUNT + BL SWAP C! ( Return 'WORD ) 'WORD ;
 : ASCII ( -- u ) BL WORD 1+ C@ STATE @ IF [COMPILE] LITERAL THEN ; IMMEDIATE
-: DEFINED ( -- cfa ) BL WORD ?UPPERCASE FIND ;
+: DEFINED ( -- cfa ) BL WORD ?UPPERCASE DUP C@ IF FIND ELSE DROP END? ON  ['] NOOP 1 THEN ;
 : (.ID) ( addr len -- ) DUP 0<> IF 0 (DO) [ <MARK ] DUP I + C@ EMIT (LOOP) ?BRANCH [ <RESOLVE ] (LOOP-EXIT) 32 EMIT ELSE DROP THEN DROP ;
 : .ID ( addr -- ) COUNT (.ID) ;
+: >TYPE   TUCK PAD SWAP CMOVE PAD SWAP TYPE ;
 
 .( Control structures ) 10 EMIT
 
@@ -137,7 +154,7 @@ TRUE CAPS !
 : UNTIL ( sys -- ) COMPILE ?BRANCH ?<RESOLVE ; IMMEDIATE
 : AGAIN ( sys -- ) COMPILE BRANCH ?<RESOLVE ; IMMEDIATE
 : WHILE ( sys -- sys ) [COMPILE] IF ; IMMEDIATE
-: REPEAT ( sys -- ) SWAP [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
+: REPEAT ( sys -- ) 2SWAP [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
 
 .( Do )
 
@@ -149,19 +166,12 @@ TRUE CAPS !
 
 : .S' ( -- ) DEPTH ?DUP IF 0 DO DEPTH I - 1- PICK 7 U.R SPACE LOOP ELSE ." Empty" THEN ;
 
-.( Deferred words ) 10 EMIT
-
-: CRASH   TRUE ABORT"  Uninitialized execution vector." ;
-: DEFER CREATE ['] CRASH HERE !  2 ALLOT  5 LAST @ NAME> C! ;
-: (IS) R@ @ >BODY ! R> 2+ >R ;
-: IS STATE @ IF COMPILE (IS) ELSE ' >BODY ! THEN ;
-
 .( ONLY vocabulary ) 10 EMIT
 
 : VOCABULARY ( -- ) CREATE 0 , DOES> CONTEXT ! ;
 : DEFINITIONS ( -- ) CONTEXT @ CURRENT ! ;
 
-\ Set the code pointer of FORTH
+( Set the code pointer of FORTH )
 ' VOCABULARY >BODY 10 + ' FORTH 1+ !
 
 CONTEXT DUP @ SWAP 2+ !
@@ -171,9 +181,35 @@ VOCABULARY ROOT ROOT DEFINITIONS
 : ONLY ( -- ) ['] ROOT >BODY CONTEXT #VOCS 1- 2* 2DUP ERASE + ! ROOT ;
 : DEFINITIONS DEFINITIONS ;
 : FORTH FORTH ;
-: ORDER ( -- ) CR ." Context: " CONTEXT   #VOCS 0 DO   DUP @ ?DUP IF BODY> >NAME .ID THEN   2+ LOOP DROP CR ." Current: " CURRENT @ BODY> >NAME .ID ;
-: PRINT-VOC ( -- ) ?DUP IF DUP .ID N>LINK @ TAIL-RECURSE THEN ;
-: WORDS ( -- ) CONTEXT #VOCS 0 DO DUP @ ?DUP IF DUP BODY> >NAME CR .ID ." : " @ PRINT-VOC THEN 2+ LOOP ;
+: ORDER ( -- )
+    CR ." Context: "
+    CONTEXT
+    #VOCS 0 DO
+        DUP @
+        ?DUP IF
+            BODY> >NAME .ID
+        THEN
+        2+
+    LOOP
+    DROP
+    CR ." Current: "
+    CURRENT @ BODY> >NAME .ID ;
+: PRINT-VOC ( -- )
+    ?DUP IF
+        DUP .ID
+        N>LINK @ TAIL-RECURSE
+    THEN ;
+: WORDS ( -- )
+    CONTEXT
+    #VOCS 0 DO
+        DUP @
+        ?DUP IF
+            DUP BODY> >NAME CR .ID
+            ." : "
+            @ PRINT-VOC
+        THEN
+        2+
+    LOOP ;
 
 ONLY FORTH ALSO DEFINITIONS
 
@@ -190,11 +226,173 @@ ONLY FORTH ALSO DEFINITIONS
 : # ( -- ) BASE @ MU/MOD ROT 9 OVER < IF 7 + THEN ASCII 0 + HOLD ;
 : #S ( -- ) BEGIN # 2DUP OR 0= UNTIL ;
 
-.( Interpreter )
+.( Number input ) 10 EMIT
 
-: RUN   ( -- ) STATE @ IF   ]   STATE @ NOT IF   INTERPRET   THEN ELSE   INTERPRET   THEN   ;
+\ These have been copied from KERNEL86.BLK
 
-.( Block I/O )
+VARIABLE DPL
+
+: BETWEEN  ( n1 min max -- f ) >R  OVER > SWAP R> > OR NOT ;  
+: WITHIN   ( n1 min max -- f ) 1- BETWEEN  ;
+: BOUNDS  ( adr len -- lim first ) OVER + SWAP ;
+
+: ?MISSING ( f -- ) IF   'WORD COUNT TYPE   TRUE ABORT"  ?"   THEN   ;
+
+: DOUBLE?   ( -- f ) DPL @ 1+ 0<> ;                     
+: CONVERT   ( +d1 adr1 -- +d2 adr2 )
+    BEGIN
+        1+
+        DUP >R
+        C@ BASE @ DIGIT
+    WHILE
+        SWAP BASE @ UM* DROP ROT
+        BASE @ UM*  D+
+        DOUBLE? IF
+            1 DPL +!
+        THEN
+        R>
+    REPEAT
+    DROP
+    R> ;
+
+: (NUMBER?) ( adr -- d flag )
+    0 0 ROT
+    DUP 1+ C@ ASCII - = DUP >R - -1 DPL !
+    BEGIN
+        CONVERT
+        DUP C@ ASCII , ASCII / BETWEEN
+    WHILE
+        0 DPL !
+    REPEAT
+    -ROT
+    R> IF
+        DNEGATE
+    THEN
+    ROT
+    C@ BL =  ;
+: NUMBER?   ( adr -- d flag )
+    FALSE OVER
+    COUNT BOUNDS
+    2DUP <> IF DO
+        I C@ BASE @ DIGIT
+        NIP IF
+            DROP TRUE
+            LEAVE
+        THEN
+    LOOP THEN
+    IF
+        (NUMBER?)
+    ELSE
+        DROP
+        0 0 FALSE
+    THEN  ;
+: (NUMBER)  ( adr -- d# ) NUMBER? NOT ?MISSING  ;
+
+DEFER NUMBER ' (NUMBER) IS NUMBER
+
+.( Interpreter ) 10 EMIT
+
+: DLITERAL   SWAP [COMPILE] LITERAL [COMPILE] LITERAL ; IMMEDIATE
+: DONE?     ( n -- f ) STATE @ <>   END? @ OR   END? OFF   ;
+
+: PRINT-HEX BASE @ 16 BASE ! SWAP 0 <# # # # # #> TYPE BASE ! space ;
+: (.SH) ( depth i -- ) 2DUP <> IF 2DUP - 1+ PICK 3 spaces print-hex SPACE 1+ TAIL-RECURSE THEN ;
+: .SH ( -- ) DEPTH 0 (.SH) 2DROP ;
+
+: [ ( -- ) STATE OFF ; IMMEDIATE
+: ] ( -- )
+    STATE ON
+    BEGIN
+        DEFINED
+        DUP IF
+            0> IF
+                EXECUTE
+            ELSE
+                ,
+            THEN
+        ELSE
+            DROP NUMBER
+            DOUBLE? IF
+                [COMPILE] DLITERAL
+            ELSE
+                DROP [COMPILE] LITERAL
+            THEN
+        THEN
+        TRUE DONE?
+    UNTIL ;
+
+( : dump 2dup 0 do dup i + c@ . loop drop 0 do dup i + c@ emit loop drop ; )
+
+: VISIBLE? [ HEX ] 21 7E BETWEEN [ DECIMAL ] ;
+: DUMP ( addr len -- )
+    HEX
+    DUP 16 MOD 0<> ABORT" Length%16!=0"
+    0 DO
+        CR DUP 0 <# # # # # #> TYPE SPACE
+        16 0 DO
+            SPACE
+            DUP I + C@ 0 <# # # #> TYPE
+        LOOP
+        SPACE ." |"
+        16 0 DO
+            DUP I + C@ DUP VISIBLE? IF
+                EMIT
+            ELSE
+                DROP ASCII . EMIT
+            THEN
+        LOOP
+        ." |"
+        16 +
+    16 +LOOP
+    DROP
+    DECIMAL ;
+
+VARIABLE CSP -1 CSP !
+: !CSP ( -- ) DEPTH CSP ! ;
+: ?CSP ( -- ) DEPTH CSP @ <> -1 CSP @ <> AND ABORT" Stack Changed" ;
+
+: HIDE     LAST @ ( DUP ) N>LINK @ ( SWAP ) CURRENT @ ( HASH ) ! ;
+: REVEAL   LAST @ ( DUP   N>LINK     SWAP ) CURRENT @ ( HASH ) ! ;
+
+: ; ( -- )
+    ?CSP
+    COMPILE EXIT
+    REVEAL
+    [COMPILE] [
+; IMMEDIATE
+
+: : ( -- )
+    !CSP
+    CURRENT @ CONTEXT !
+    CREATE
+    HIDE
+    ]
+    LAST @ NAME>
+    DUP 3 SWAP C!
+    DUP >BODY SWAP 1+ !
+;
+
+: INTERPRET ( -- )
+    BEGIN
+        DEFINED IF
+            EXECUTE
+        ELSE
+            NUMBER DOUBLE? NOT
+            IF DROP THEN
+        THEN
+        FALSE DONE?
+    UNTIL ;
+: RUN ( -- )
+    STATE @ IF
+        ]
+        STATE @ NOT IF
+            INTERPRET
+        THEN
+    ELSE
+        INTERPRET
+    THEN ;
+
+.( Block I/O ) 10 EMIT
 
 \ These have been copied from KERNEL86.BLK
 
@@ -207,7 +405,7 @@ DEFER WRITE-BLOCK   ( buffer-header -- )
 VOCABULARY DOS   DOS DEFINITIONS
 : !FILES   ( fcb -- )   DUP FILE !  IN-FILE !  ;
 : DISK-ABORT   ( fcb a n -- ) TYPE ."  "  .FILE  ABORT  ;
-: ?DISK-ERROR  ( fcb n -- ) DUP DISK-ERROR ! IF  " Disk error" DISK-ABORT ELSE DROP THEN  ;
+: ?DISK-ERROR  ( fcb n -- ) DUP DISK-ERROR ! IF DISK-ABORT ELSE DROP THEN  ;
 
 CREATE FCB1   B/FCB ALLOT
 : CLR-FCB    ( fcb -- )    DUP  B/FCB ERASE 1+ 11 BLANK ;
@@ -234,8 +432,10 @@ FORTH DEFINITIONS
 : (BUFFER) ( n fcb -- a )   PAUSE  ABSENT? IF  MISSING  1 BUFFER#   4 + @  THEN  ;
 : BUFFER   ( n -- a )   FILE @ (BUFFER)  ;
 : (BLOCK)  ( n fcb -- a ) (BUFFER)  >UPDATE @ 0> IF  1 BUFFER#  DUP READ-BLOCK  6 + OFF  THEN  ;
-: BLOCK    ( n -- a )   FILE @ (BLOCK)  ;
+: DBLOCK    ( n -- a )   FILE @ (BLOCK)  ;
 : IN-BLOCK ( n -- a )   IN-FILE @ (BLOCK)  ;
+
+' DBLOCK IS BLOCK
 
 : EMPTY-BUFFERS ( -- ) FIRST LIMIT OVER - ERASE >BUFFERS #BUFFERS 1+ 8* ERASE FIRST 1 BUFFER#   #BUFFERS 0 DO   DUP ON  4 +  2DUP !   SWAP B/BUF + SWAP  4 + LOOP   2DROP   ;
 : SAVE-BUFFERS  ( -- ) 1 BUFFER#   #BUFFERS 0 DO   DUP @ 1+ IF  DUP 6 + @ 0< IF  DUP WRITE-BLOCK  DUP 6 + OFF  THEN 8 + THEN   LOOP   DROP   ;
@@ -251,8 +451,9 @@ FORTH DEFINITIONS
 : DEFAULT    ( -- )   [ DOS ]   FCB1 DUP IN-FILE !  DUP FILE ! CLR-FCB   DOS-FCB 1+ C@ BL <> IF   DOS-FCB FCB1 12 CMOVE  OPEN-FILE   THEN   ;
 : (LOAD)     ( n -- )  [ DOS ] FILE @ >R   BLK @ >R   >IN @ >R >IN OFF  BLK !   IN-FILE @ FILE !   RUN   R> >IN !   R> BLK ! R> !FILES  ;
 DEFER LOAD
+' (LOAD) IS LOAD
 
-.( File I/O )
+.( File I/O ) 10 EMIT
 
 \ These have been copied from EXTEND.BLK
 
@@ -291,3 +492,29 @@ FORTH DEFINITIONS
 : A:     ( -- )   [ DOS ]  0 SELECT ;
 : B:     ( -- )   [ DOS ]  1 SELECT ;
 DOS DEFINITIONS
+
+: FILE:   ( -- fcb ) >IN @   CREATE   >IN !   HERE DUP   B/FCB ALLOT   !FCB DOES>  !FILES  ;
+: ?DEFINE ( -- fcb ) >IN @  DEFINED IF   NIP >BODY   ELSE   DROP  >IN ! FILE:   THEN  ;
+FORTH DEFINITIONS
+: DEFINE  ( -- )   [ DOS ]  ?DEFINE  DROP  ;
+: OPEN    ( -- )   [ DOS ]  ?DEFINE  !FILES     OPEN-FILE  ;
+: FROM    ( -- )   [ DOS ]  ?DEFINE  IN-FILE !  OPEN-FILE  ;
+: SAVE-SYSTEM   ( -- ) [ DOS HEX ] 100 HERE SAVE  ;  DECIMAL
+
+CREATE VIEW-FILES   32 ALLOT  VIEW-FILES 32 ERASE
+: VIEWS   ( n -- )   [ DOS ] ?DEFINE 2DUP  40 + !   BODY> SWAP 2* VIEW-FILES + !  ;
+
+1 VIEWS KERNEL86.BLK
+2 VIEWS EXTEND86.BLK
+3 VIEWS CPU8086.BLK
+4 VIEWS UTILITY.BLK
+
+FILE-IO
+
+\ These have been copied from UTILITY.BLK
+
+VARIABLE SCR 0 SCR !
+
+: .SCR   ( -- )   ." Screen # " SCR ? 8 SPACES ;
+: LIST   ( n -- ) 1 ?ENOUGH  CR  DUP SCR !   .SCR   L/SCR 0 DO CR  I 3 .R SPACE DUP BLOCK I C/L * + C/L -TRAILING >TYPE LOOP  DROP CR ;
+
