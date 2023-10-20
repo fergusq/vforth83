@@ -28,8 +28,6 @@ InterpreterState *state;
 
 void init_forth() {
     state = malloc(sizeof(*state));
-    state->RETURN_STACK = create_stack();
-    state->DATA_STACK = create_stack();
     state->DEBUG_CALL_STACK = create_stack();
     state->MEMORY = create_memory();
     state->program_counter = 0;
@@ -38,8 +36,6 @@ void init_forth() {
 }
 
 void free_forth() {
-    free_stack(state->RETURN_STACK);
-    free_stack(state->DATA_STACK);
     free_stack(state->DEBUG_CALL_STACK);
     free_memory(state->MEMORY);
     free(state);
@@ -84,6 +80,8 @@ void create_forth_vocabulary() {
 
     // Create variables
 
+    state->MEMORY->SP0_var = state->SP0_var = memory_at16(state->MEMORY, add_variable("SP0"));
+    state->MEMORY->RP0_var = state->RP0_var = memory_at16(state->MEMORY, add_variable("RP0"));
     state->BLK_var = memory_at16(state->MEMORY, add_variable("BLK"));
     state->NUMBER_TIB_var = memory_at16(state->MEMORY, add_variable("#TIB"));
     state->TO_IN_var = memory_at16(state->MEMORY, add_variable(">IN"));
@@ -96,7 +94,13 @@ void create_forth_vocabulary() {
     state->VOC_LINK_var = memory_at16(state->MEMORY, add_variable("VOC-LINK"));
     add_constant("#VOCS", NUM_VOCS);
 
+    // Initialize variables
+
     *state->BASE_var = 10;
+    *state->SP0_var = MEMORY_SIZE - 201;
+    *state->RP0_var = MEMORY_SIZE - 1;
+
+    // Fix CURRENT
 
     *state->CURRENT_var = *state->MEMORY->CURRENT_var;
     state->MEMORY->CURRENT_var = state->CURRENT_var;
@@ -140,11 +144,17 @@ void execute_system(char *filename) {
 // *** Debug ***
 
 void print_stack_trace() {
-    for (int i = state->DEBUG_CALL_STACK->size - 1; i >= 0; i--) {
+    for (int i = state->DEBUG_CALL_STACK->size - 2; i >= 0; i-=2) {
         uint16_t cfa = state->DEBUG_CALL_STACK->bottom[i];
         Definition *dbg_call_stack_definition = get_definition(state->MEMORY, TO_NAME(cfa));
-        printf(" < %s", dbg_call_stack_definition->name);
+        fprintf(stderr, " < %s", dbg_call_stack_definition->name);
         free_definition(dbg_call_stack_definition);
+    }
+    fprintf(stderr, " || ");
+    for (int i = state->MEMORY->return_stack_size - 1; i >= 0; i--) {
+        uint16_t cfa;
+        pick_return_stack(state->MEMORY, i, &cfa);
+        fprintf(stderr, " < %d", cfa);
     }
 }
 
@@ -153,7 +163,6 @@ void print_stack_trace() {
 // Forth has two interpreters: one that interprets words from the input stream, another that interprets compiled words from the memory
 
 int interpret_from_input_stream() {
-    int error = 0;
     while (1) {
         uint8_t *word = read_word(state);
         if (word == 0) {
@@ -164,7 +173,7 @@ int interpret_from_input_stream() {
             free(word);
             word = word_upper;
         }
-        if (TRACE) printf("Executing %s from input stream\n", word);
+        if (TRACE) fprintf(stderr, "Executing %s from input stream (state %d, >in %d)\n", word, *state->STATE_var, *state->TO_IN_var);
         Definition *definition = find_word(state->MEMORY, word);
         if (definition == 0) {
             // Try parsing it as a number
@@ -185,18 +194,17 @@ int interpret_from_input_stream() {
                 value = value * *state->BASE_var + chr;
             }
             if (num_parsing_error) {
-                error = 1;
                 printf("%s?\n", word);
                 free(word);
-                error = 1;
-                break;
+                return 1;
             } else {
                 if (sign == -1) value = (1 << 16) - value;
                 if (*state->STATE_var != 0) {
                     insert16(state->MEMORY, state->BUILTINS[BUILTIN_WORD_LIT]);
                     insert16(state->MEMORY, value);
                 } else {
-                    push(state->DATA_STACK, value);
+                    int ret = push_data_stack(state->MEMORY, value);
+                    if (ret != 0) return ret;
                 }
                 free(word);
                 continue;
@@ -207,23 +215,31 @@ int interpret_from_input_stream() {
             free(word);
             free_definition(definition);
         } else {
-            //if (TRACE) printf("Executing %d\n", FROM_BODY(definition->pfa));
+            //if (TRACE) fprintf(stderr, "Executing %d\n", FROM_BODY(definition->pfa));
             int ret = execute_word(FROM_BODY(definition->pfa));
             free_definition(definition);
-            if (ret == -1) {
+            if (ret == -3) {
                 free(word);
-                break;
+                return 1;
+            } else if (ret == -2) {
+                free(word);
+                return 0;
             } else if (ret > 0) {
                 char *message = get_error_string(ret);
-                printf("error: %s (%d) while executing word `%s'\n", message, ret, word);
+                fprintf(stderr, "error: %s (%d) while executing word `%s'\n", message, ret, word);
                 free(word);
-                error = 1;
-                break;
+
+                // reset state
+                state->MEMORY->return_stack_size = 0;
+                state->DEBUG_CALL_STACK->top = state->DEBUG_CALL_STACK->bottom; 
+                state->DEBUG_CALL_STACK->size = 0;
+                *state->STATE_var = 0;
+                return 1;
             }
             free(word);
         }
     }
-    return error;
+    return 0;
 }
 
 int interpret_from_memory() {
@@ -233,16 +249,15 @@ int interpret_from_memory() {
         if (cfa == state->BUILTINS[BUILTIN_WORD_LIT]) {
             uint16_t num = *memory_at16(state->MEMORY, state->program_counter);
             state->program_counter += 2;
-            push(state->DATA_STACK, num);
+            int ret = push_data_stack(state->MEMORY, num);
+            if (ret != 0) return ret;
         } else if (cfa == state->BUILTINS[BUILTIN_WORD_BRANCH]) {
             uint16_t addr = *memory_at16(state->MEMORY, state->program_counter);
             state->program_counter += addr;
         } else if (cfa == state->BUILTINS[BUILTIN_WORD_QUESTION_BRANCH]) {
             uint16_t flag;
-            if (pop(state->DATA_STACK, &flag) == -1) {
-                printf("Stack Underflow\n");
-                break;
-            }
+            int ret = pop_data_stack(state->MEMORY, &flag);
+            if (ret != 0) return ret;
             uint16_t addr = *memory_at16(state->MEMORY, state->program_counter);
             if (flag == 0) {
                 state->program_counter += addr;
@@ -251,16 +266,16 @@ int interpret_from_memory() {
             }
         } else {
             int ret = execute_word(cfa);
-            if (ret == -1) {
-                return -1;
+            if (ret < 0) {
+                return ret;
             } else if (ret > 0) {
                 Definition *definition = get_definition(state->MEMORY, TO_NAME(cfa));
                 char *message = get_error_string(ret);
-                printf("error: %s (%d) while executing word %u %s", message, ret, cfa, definition->name);
+                fprintf(stderr, "error: %s (%d) while executing word %u %s", message, ret, cfa, definition->name);
                 print_stack_trace();
-                printf("\n");
+                fprintf(stderr, "\n");
                 free_definition(definition);
-                break;
+                return -3;
             }
         }
     }
@@ -272,36 +287,42 @@ int interpret_from_memory() {
 int execute_word(uint16_t cfa) {
     if (TRACE) {
         Definition *definition = get_definition(state->MEMORY, TO_NAME(cfa));
-        printf("Executing %d %s at %d", cfa, definition->name, state->program_counter);
+        fprintf(stderr, "Executing %d %s at %d", cfa, definition->name, state->program_counter);
         print_stack_trace();
-        printf("\n");
+        fprintf(stderr, "\n");
         free_definition(definition);
     }
     enum DefinitionType type = *memory_at8(state->MEMORY, cfa);
     if (type == DEFINITION_TYPE_VARIABLE) {
         // Variables push their parameter field address to the stack
-        push(state->DATA_STACK, TO_BODY(cfa));
+        int ret = push_data_stack(state->MEMORY, TO_BODY(cfa));
+        if (ret != 0) return ret;
         return 0;
     } else if (type == DEFINITION_TYPE_CONSTANT) {
         // Constants push their parameter field value to the stack
-        push(state->DATA_STACK, *memory_at16(state->MEMORY, TO_BODY(cfa)));
+        int ret = push_data_stack(state->MEMORY, *memory_at16(state->MEMORY, TO_BODY(cfa)));
+        if (ret != 0) return ret;
         return 0;
     } else if (type == DEFINITION_TYPE_BUILTIN) {
         // Builtins are executed with their respective functions in builtins.c
-        return execute_builtin(state, *memory_at16(state->MEMORY, TO_BODY(cfa)));
+        int ret = execute_builtin(state, *memory_at16(state->MEMORY, TO_BODY(cfa)));
+        return ret;
     } else if (type == DEFINITION_TYPE_CALL || type == DEFINITION_TYPE_DOES) {
         // Colon definitions are executed by moving the program counter to the parameter field
         push(state->DEBUG_CALL_STACK, cfa);
-        push(state->RETURN_STACK, state->program_counter);
+        push(state->DEBUG_CALL_STACK, state->MEMORY->return_stack_size);
+        int ret = push_return_stack(state->MEMORY, state->program_counter);
+        if (ret != 0) return ret;
         state->program_counter = *memory_at16(state->MEMORY, TO_CODE_P(cfa));
 
         if (type == DEFINITION_TYPE_DOES) {
             // If we are executing a DOES> word, we need to push the address of the word's parameter field to the stack
-            push(state->DATA_STACK, TO_BODY(cfa));
+            int ret = push_data_stack(state->MEMORY, TO_BODY(cfa));
+            if (ret != 0) return ret;
         }
         
         // If we are not already executing a function, start executing it now
-        if (state->RETURN_STACK->size == 1) {
+        if (state->MEMORY->return_stack_size == 1) {
             return interpret_from_memory();
         }
         return 0;
@@ -334,7 +355,7 @@ int main(int argc, char *argv[]) {
         } else if (strcmp(argv[i], "-t") == 0) {
             TRACE = 1;
         } else {
-            printf("error: unknown option %s\n", argv[i]);
+            fprintf(stderr, "error: unknown option %s\n", argv[i]);
             usage(stderr, argv[0]);
             return 1;
         }

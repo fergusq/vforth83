@@ -11,8 +11,6 @@ typedef uint16_t ForthValue;
 #define MAX_INPUT_SIZE 1024
 
 typedef struct _InterpreterState {
-    Stack *RETURN_STACK;
-    Stack *DATA_STACK;
     Stack *DEBUG_CALL_STACK;
 
     Memory *MEMORY;
@@ -27,6 +25,8 @@ typedef struct _InterpreterState {
 
     // Misc variables
 
+    uint16_t *SP0_var;
+    uint16_t *RP0_var;
     uint16_t *BASE_var;
     uint16_t *SPAN_var;
     uint16_t *STATE_var;
@@ -36,7 +36,7 @@ typedef struct _InterpreterState {
     uint16_t *CAPS_var;
     uint16_t *VOC_LINK_var;
 
-    // Compiler state
+    // Bytecode interpreter state
 
     uint16_t program_counter;
 
@@ -44,6 +44,8 @@ typedef struct _InterpreterState {
 
     uint16_t BUILTINS[256];
 } InterpreterState;
+
+extern uint8_t TRACE;
 
 #include "builtins.h"
 

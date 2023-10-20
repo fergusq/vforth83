@@ -228,6 +228,7 @@ enum BuiltinWord {
     BUILTIN_WORD_BDOS,
     BUILTIN_WORD_UPPER,
     BUILTIN_WORD_DIGIT,
+    BUILTIN_WORD_RP_FETCH,
     
     // Debug words
 

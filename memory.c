@@ -2,12 +2,15 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "errors.h"
 #include "memory.h"
 #include "util.h"
 
 Memory *create_memory() {
     Memory *memory = malloc(sizeof(*memory));
     memory->memory_pointer = 1;
+    memory->data_stack_size = 0;
+    memory->return_stack_size = 0;
     return memory;
 }
 
@@ -114,3 +117,37 @@ void free_definition(Definition *definition) {
     free(definition->name);
     free(definition);
 }
+
+#define IMPLEMENT_STACK(nameupper, name, bottom_var) int push_ ## name ## _stack(Memory *memory, uint16_t value) {\
+    uint16_t size = memory->name ## _stack_size + 1;\
+    uint16_t sp = *memory->bottom_var - size + 1;\
+    if (size > 200 || sp <= memory->memory_pointer + 80) {\
+        return ERROR_ ## nameupper ## _STACK_OVERFLOW;\
+    }\
+    memory->name ## _stack_size++;\
+    *memory_at16(memory, sp) = value;\
+    return 0;\
+}\
+int pick_data_stack(Memory *memory, uint16_t index, uint16_t *ret_val) {\
+    uint16_t size = memory->name ## _stack_size;\
+    if (index >= size) {\
+        return ERROR_ ## nameupper ## _STACK_OVERFLOW;\
+    }\
+    uint16_t sp = *memory->bottom_var - index;\
+    *ret_val = *memory_at16(memory, sp);\
+    return 0;\
+}\
+int pop_data_stack(Memory *memory, uint16_t *ret_val) {\
+    uint16_t size = memory->name ## _stack_size;\
+    if (size == 0) {\
+        return ERROR_ ## nameupper ## _STACK_OVERFLOW;\
+    }\
+    uint16_t sp = *memory->bottom_var - size + 1;\
+    *ret_val = *memory_at16(memory, sp);\
+    memory->name ## _stack_size--;\
+    return 0;\
+}
+
+IMPLEMENT_STACK(DATA, data, SP0_var)
+
+IMPLEMENT_STACK(RETURN, return, RP0_var)

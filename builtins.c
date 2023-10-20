@@ -14,13 +14,27 @@
 #define modulo(i, n) (((i) % (n) + n) % (n))
 
 #define pop_to_unsigned(varname) uint16_t varname;\
-    if (pop(state->DATA_STACK, &varname) == -1) {\
-        return ERROR_STACK_UNDERFLOW;\
+    {\
+        int ret = pop_data_stack(state->MEMORY, &varname);\
+        if (ret != 0) {\
+            return ret;\
+        }\
     }
 
 #define pop_to_signed(varname) int16_t varname;\
-    if (pop(state->DATA_STACK, &varname) == -1) {\
-        return ERROR_STACK_UNDERFLOW;\
+    {\
+        int ret = pop_data_stack(state->MEMORY, &varname);\
+        if (ret != 0) {\
+            return ret;\
+        }\
+    }
+
+#define pop_return_to_unsigned(varname) uint16_t varname;\
+    {\
+        int ret = pop_return_stack(state->MEMORY, &varname);\
+        if (ret != 0) {\
+            return ret;\
+        }\
     }
 
 #define pop_to_unsigned_32bit(varname) pop_to_unsigned(varname ## _a);\
@@ -31,10 +45,18 @@
     pop_to_unsigned(varname ## _b);\
     int32_t varname = (int32_t) ((uint32_t) varname ## _a << 16) + varname ## _b;
 
-#define push_from(varname) push(state->DATA_STACK, varname);
+#define push_from(varname) {\
+    int ret = push_data_stack(state->MEMORY, varname);\
+    if (ret != 0) return ret;\
+}
 
-#define push_from_32bit(varname) push(state->DATA_STACK, ((uint32_t) varname) & 0xFFFF);\
-    push(state->DATA_STACK, ((uint32_t) varname) >> 16);
+#define push_return_from(varname) {\
+    int ret = push_return_stack(state->MEMORY, varname);\
+    if (ret != 0) return ret;\
+}
+
+#define push_from_32bit(varname) push_from(((uint32_t) varname) & 0xFFFF);\
+    push_from(((uint32_t) varname) >> 16);
 
 #define read_next_word(word) char *word = read_word(state);\
     if (word == 0) {\
@@ -325,7 +347,7 @@ int builtin_greater_than(InterpreterState *state) {
 
 int builtin_to_r(InterpreterState *state) {
     pop_to_unsigned(value);
-    push(state->RETURN_STACK, value);
+    push_return_from(value);
     return 0;
 }
 
@@ -345,8 +367,7 @@ int builtin_fetch(InterpreterState *state) {
 }
 
 int builtin_abort(InterpreterState *state) {
-    state->DATA_STACK->top = state->DATA_STACK->bottom;
-    state->DATA_STACK->size = 0;
+    state->MEMORY->data_stack_size = 0;
     return builtin_quit(state);
 }
 
@@ -469,7 +490,7 @@ int builtin_d_less_than(InterpreterState *state) {
 // DEFINITIONS
 
 int builtin_depth(InterpreterState *state) {
-    push_from(state->DATA_STACK->size);
+    push_from(state->MEMORY->data_stack_size);
     return 0;
 }
 
@@ -515,9 +536,19 @@ int builtin_execute(InterpreterState *state) {
 }
 
 int builtin_exit(InterpreterState *state) {
-    uint16_t debug_addr, ret_addr;
+    uint16_t debug_addr, ret_size;
+    if (pop(state->DEBUG_CALL_STACK, &ret_size) == -1) return ERROR_DEBUG_STACK_UNDERFLOW;
     if (pop(state->DEBUG_CALL_STACK, &debug_addr) == -1) return ERROR_DEBUG_STACK_UNDERFLOW;
-    if (pop(state->RETURN_STACK, &ret_addr) == -1) return ERROR_RETURN_STACK_UNDERFLOW;
+    pop_return_to_unsigned(ret_addr);
+    if (TRACE) {
+        if (state->MEMORY->return_stack_size != ret_size) {
+            fprintf(stderr, "warning: return stack mismatch: %d != %d\n", state->MEMORY->return_stack_size, ret_size);
+            //return ERROR_RETURN_STACK_MISMATCH;
+        }
+        Definition *def = get_definition(state->MEMORY, TO_NAME(debug_addr));
+        fprintf(stderr, "Leaving %d %s\n", debug_addr, def->name);
+        free_definition(def);
+    }
     state->program_counter = ret_addr;
     if (ret_addr == 0) {
         return -1;
@@ -578,15 +609,7 @@ int builtin_find(InterpreterState *state) {
 }
 
 // FLUSH
-
-int builtin_forget(InterpreterState *state) {
-    read_name(word, definition);
-    uint16_t p = definition->previous_p;
-    free_definition(definition);
-    free(word);
-    // TODO
-    return 1;
-}
+// FORGET
 
 // FORTH
 
@@ -686,36 +709,31 @@ int builtin_over(InterpreterState *state) {
 int builtin_pick(InterpreterState *state) {
     pop_to_unsigned(n);
     uint16_t value;
-    if (pick(state->DATA_STACK, n, &value) == -1) {
-        return ERROR_STACK_UNDERFLOW;
-    }
+    int ret = pick_data_stack(state->MEMORY, n, &value);
+    if (ret != 0) return ret;
     push_from(value);
     return 0;
 }
 
 int builtin_quit(InterpreterState *state) {
-    state->RETURN_STACK->top = state->RETURN_STACK->bottom; 
-    state->RETURN_STACK->size = 0;
+    state->MEMORY->return_stack_size = 0;
     state->DEBUG_CALL_STACK->top = state->DEBUG_CALL_STACK->bottom; 
     state->DEBUG_CALL_STACK->size = 0;
     *state->STATE_var = 0;
-    return -1;
+    return -2;
 }
 
 int builtin_r_from(InterpreterState *state) {
-    uint16_t value;
-    if (pop(state->RETURN_STACK, &value) == -1) {
-        return ERROR_RETURN_STACK_UNDERFLOW;
-    }
+    pop_return_to_unsigned(value);
     push_from(value);
     return 0;
 }
 
 int builtin_r_fetch(InterpreterState *state) {
-    if (state->RETURN_STACK->size == 0) {
-        return ERROR_RETURN_STACK_UNDERFLOW;
-    }
-    push_from(state->RETURN_STACK->bottom[state->RETURN_STACK->size - 1]);
+    uint16_t value;
+    int ret = pick_return_stack(state->MEMORY, 0, &value);
+    if (ret != 0) return ret;
+    push_from(value);
     return 0;
 }
 
@@ -723,14 +741,15 @@ int builtin_r_fetch(InterpreterState *state) {
 
 int builtin_roll(InterpreterState *state) {
     pop_to_unsigned(n);
-    if (state->DATA_STACK->size < n) {
-        return ERROR_STACK_UNDERFLOW;
+    if (state->MEMORY->data_stack_size <= n) {
+        return ERROR_DATA_STACK_UNDERFLOW;
     }
-    uint16_t value = state->DATA_STACK->bottom[state->DATA_STACK->size - n - 1];
-    for (uint16_t i = state->DATA_STACK->size - n - 1; i < state->DATA_STACK->size - 1; i++) {
-        state->DATA_STACK->bottom[i] = state->DATA_STACK->bottom[i + 1];
+    uint16_t sp = *state->MEMORY->SP0_var - state->MEMORY->data_stack_size + 1;
+    uint16_t value = *memory_at16(state->MEMORY, sp + n);
+    for (uint16_t i = n; i > 0; i--) {
+        *memory_at16(state->MEMORY, sp + i) = *memory_at16(state->MEMORY, sp + i - 1);
     }
-    state->DATA_STACK->bottom[state->DATA_STACK->size - 1] = value;
+    *memory_at16(state->MEMORY, sp) = value;
     return 0;
 }
 
@@ -1207,6 +1226,18 @@ int builtin_digit(InterpreterState *state) {
     return 0;
 }
 
+int builtin_sp_fetch(InterpreterState *state) {
+    uint16_t sp = *state->MEMORY->SP0_var - state->MEMORY->data_stack_size + 1;
+    push_from(sp);
+    return 0;
+}
+
+int builtin_rp_fetch(InterpreterState *state) {
+    uint16_t rp = *state->MEMORY->RP0_var - state->MEMORY->return_stack_size + 1;
+    push_from(rp);
+    return 0;
+}
+
 int see(InterpreterState *state, Definition *definition) {
     if (definition->type == DEFINITION_TYPE_VARIABLE) {
         printf("VARIABLE %s Value = %d", definition->name, *memory_at16(state->MEMORY, definition->pfa));
@@ -1364,7 +1395,7 @@ BuiltinFunction BUILTINS[MAX_BUILTINS] = {
     [BUILTIN_WORD_FILL] = builtin_fill,
     [BUILTIN_WORD_FIND] = builtin_find,
     //[BUILTIN_WORD_FLUSH] = builtin_flush,
-    [BUILTIN_WORD_FORGET] = builtin_forget,
+    //[BUILTIN_WORD_FORGET] = builtin_forget,
     //[BUILTIN_WORD_FORTH] = builtin_forth,
     [BUILTIN_WORD_FORTH_83] = builtin_forth_83,
     [BUILTIN_WORD_HERE] = builtin_here,
@@ -1482,6 +1513,8 @@ BuiltinFunction BUILTINS[MAX_BUILTINS] = {
     [BUILTIN_WORD_BDOS] = builtin_bdos,
     [BUILTIN_WORD_UPPER] = builtin_upper,
     [BUILTIN_WORD_DIGIT] = builtin_digit,
+    [BUILTIN_WORD_SP_FETCH] = builtin_sp_fetch,
+    [BUILTIN_WORD_RP_FETCH] = builtin_rp_fetch,
 
     [BUILTIN_WORD_SEE] = builtin_see,
 };
@@ -1679,7 +1712,7 @@ void add_builtins(AddBuiltinFunction add_builtin) {
     add_builtin("QUERY", BUILTIN_WORD_QUERY, 0);
     add_builtin("RECURSE", BUILTIN_WORD_RECURSE, 1);
     add_builtin("SCR", BUILTIN_WORD_SCR, 0);
-    //add_builtin("SP@", BUILTIN_WORD_SP_FETCH, 0);
+    add_builtin("SP@", BUILTIN_WORD_SP_FETCH, 0);
     add_builtin("THRU", BUILTIN_WORD_THRU, 1);
     add_builtin("U.R", BUILTIN_WORD_U_DOT_R, 0);
 
@@ -1697,6 +1730,7 @@ void add_builtins(AddBuiltinFunction add_builtin) {
     add_builtin("BDOS", BUILTIN_WORD_BDOS, 0);
     add_builtin("UPPER", BUILTIN_WORD_UPPER, 0);
     add_builtin("DIGIT", BUILTIN_WORD_DIGIT, 0);
+    add_builtin("RP@", BUILTIN_WORD_RP_FETCH, 0);
 
     // Debug words
     add_builtin("SEE", BUILTIN_WORD_SEE, 0);

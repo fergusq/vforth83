@@ -4,10 +4,11 @@ char *get_error_string(enum ErrorCode error) {
     switch (error)
     {
     case ERROR_UNKNOWN_ERROR: return "Unknown Error";
-    case ERROR_STACK_UNDERFLOW: return "Stack Underflow";
-    case ERROR_STACK_OVERFLOW: return "Stack Overflow";
+    case ERROR_DATA_STACK_UNDERFLOW: return "Stack Underflow";
+    case ERROR_DATA_STACK_OVERFLOW: return "Stack Overflow";
     case ERROR_RETURN_STACK_UNDERFLOW: return "Return Stack Underflow";
     case ERROR_RETURN_STACK_OVERFLOW: return "Return Stack Overflow";
+    case ERROR_RETURN_STACK_MISMATCH: return "Return Stack Mismatch";
     case ERROR_DEBUG_STACK_UNDERFLOW: return "Debug Stack Underflow";
     case ERROR_DEBUG_STACK_OVERFLOW: return "Debug Stack Overflow";
     case ERROR_MEMORY_ALLOCATION_ERROR: return "Memory Allocation Error";
