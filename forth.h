@@ -2,6 +2,7 @@
 #define _FORTH_H
 
 #include <stdint.h>
+#include <stdio.h>
 
 typedef uint16_t ForthValue;
 
@@ -39,6 +40,8 @@ typedef struct _InterpreterState {
     // Bytecode interpreter state
 
     uint16_t program_counter;
+    uint16_t breakpoint;
+    uint8_t debug;
 
     // Builtin compilation addresses
 
@@ -56,6 +59,12 @@ void free_forth();
 void add_builtin(char *name, enum BuiltinWord word, uint8_t is_immediate);
 
 void create_forth_vocabulary();
+
+void print_stack_trace(FILE *file);
+
+void push_debug_frame(uint16_t cfa);
+
+int pop_debug_frame(uint16_t *cfa);
 
 int interpret_from_input_stream();
 

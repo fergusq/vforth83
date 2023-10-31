@@ -1,6 +1,7 @@
 #include <malloc.h>
 #include <string.h>
 #include <ctype.h>
+#include <wchar.h>
 
 #include "builtins.h"
 #include "stack.h"
@@ -64,7 +65,7 @@
     }\
     if (*state->CAPS_var != 0) {\
         for (uint8_t i = 0; i < strlen(word); i++) {\
-            word[i] = toupper(word[i]);\
+            word[i] = toupperf(word[i]);\
         }\
     }
 
@@ -307,7 +308,7 @@ int builtin_colon(InterpreterState *state) {
     *memory_at16(state->MEMORY, TO_CODE_P(FROM_BODY(pfa))) = pfa;
     *state->CONTEXT_var = *state->CURRENT_var;
     *state->STATE_var = 1;
-    push_from(TO_NAME(FROM_BODY(pfa)));
+    push_from(TO_NAME(state->MEMORY, FROM_BODY(pfa)));
     free(name);
     return 0;
 }
@@ -368,6 +369,7 @@ int builtin_fetch(InterpreterState *state) {
 
 int builtin_abort(InterpreterState *state) {
     state->MEMORY->data_stack_size = 0;
+    print_stack_trace(stdout);
     return builtin_quit(state);
 }
 
@@ -505,8 +507,8 @@ int builtin_dnegate(InterpreterState *state) {
 int builtin_does(InterpreterState *state) {
     uint16_t pc = state->program_counter;
     uint16_t nfa = *state->MEMORY->LAST_var;
-    *memory_at8(state->MEMORY, FROM_NAME(nfa)) = DEFINITION_TYPE_DOES;
-    *memory_at16(state->MEMORY, TO_CODE_P(FROM_NAME(nfa))) = pc;
+    *memory_at16(state->MEMORY, FROM_NAME(state->MEMORY, nfa)) = DEFINITION_TYPE_DOES;
+    *memory_at16(state->MEMORY, TO_CODE_P(FROM_NAME(state->MEMORY, nfa))) = pc;
     return builtin_exit(state);
 }
 
@@ -526,7 +528,8 @@ int builtin_dup(InterpreterState *state) {
 
 int builtin_emit(InterpreterState *state) {
     pop_to_unsigned(value);
-    printf("%c", value);
+    wchar_t chr = fix_finnish(value);
+    printf("%lc", chr);
     return 0;
 }
 
@@ -536,19 +539,9 @@ int builtin_execute(InterpreterState *state) {
 }
 
 int builtin_exit(InterpreterState *state) {
-    uint16_t debug_addr, ret_size;
-    if (pop(state->DEBUG_CALL_STACK, &ret_size) == -1) return ERROR_DEBUG_STACK_UNDERFLOW;
-    if (pop(state->DEBUG_CALL_STACK, &debug_addr) == -1) return ERROR_DEBUG_STACK_UNDERFLOW;
+    uint16_t debug_addr;
     pop_return_to_unsigned(ret_addr);
-    if (TRACE) {
-        if (state->MEMORY->return_stack_size != ret_size) {
-            fprintf(stderr, "warning: return stack mismatch: %d != %d\n", state->MEMORY->return_stack_size, ret_size);
-            //return ERROR_RETURN_STACK_MISMATCH;
-        }
-        Definition *def = get_definition(state->MEMORY, TO_NAME(debug_addr));
-        fprintf(stderr, "Leaving %d %s\n", debug_addr, def->name);
-        free_definition(def);
-    }
+    pop_debug_frame(&debug_addr);
     state->program_counter = ret_addr;
     if (ret_addr == 0) {
         return -1;
@@ -628,7 +621,7 @@ int builtin_here(InterpreterState *state) {
 
 int builtin_immediate(InterpreterState *state) {
     uint16_t nfa = *state->MEMORY->LAST_var;
-    *memory_at8(state->MEMORY, TO_IMMEDIATE_FLAG(FROM_NAME(nfa))) = 1;
+    *memory_at8(state->MEMORY, TO_IMMEDIATE_FLAG(FROM_NAME(state->MEMORY, nfa))) = 1;
     return 0;
 }
 
@@ -720,6 +713,7 @@ int builtin_quit(InterpreterState *state) {
     state->DEBUG_CALL_STACK->top = state->DEBUG_CALL_STACK->bottom; 
     state->DEBUG_CALL_STACK->size = 0;
     *state->STATE_var = 0;
+    state->program_counter = 0;
     return -2;
 }
 
@@ -744,10 +738,10 @@ int builtin_roll(InterpreterState *state) {
     if (state->MEMORY->data_stack_size <= n) {
         return ERROR_DATA_STACK_UNDERFLOW;
     }
-    uint16_t sp = *state->MEMORY->SP0_var - state->MEMORY->data_stack_size + 1;
-    uint16_t value = *memory_at16(state->MEMORY, sp + n);
+    uint16_t sp = *state->MEMORY->SP0_var - 2*state->MEMORY->data_stack_size + 2;
+    uint16_t value = *memory_at16(state->MEMORY, sp + 2*n);
     for (uint16_t i = n; i > 0; i--) {
-        *memory_at16(state->MEMORY, sp + i) = *memory_at16(state->MEMORY, sp + i - 1);
+        *memory_at16(state->MEMORY, sp + 2*i) = *memory_at16(state->MEMORY, sp + 2*i - 2);
     }
     *memory_at16(state->MEMORY, sp) = value;
     return 0;
@@ -794,7 +788,9 @@ int builtin_type(InterpreterState *state) {
     pop_to_unsigned(count);
     pop_to_unsigned(addr);
     for (uint16_t i = 0; i < count; i++) {
-        printf("%c", *memory_at8(state->MEMORY, addr + i));
+        uint8_t value = *memory_at8(state->MEMORY, addr + i);
+        wchar_t chr = fix_finnish(value);
+        printf("%lc", value);
     }
     fflush(stdout);
     return 0;
@@ -992,7 +988,7 @@ int builtin_d_zero_equals(InterpreterState *state) {
 
 int builtin_d_two_divide(InterpreterState *state) {
     pop_to_unsigned_32bit(d1);
-    push_from(d1 >> 1);
+    push_from_32bit(d1 >> 1);
     return 0;
 }
 
@@ -1204,7 +1200,7 @@ int builtin_upper(InterpreterState *state) {
     pop_to_unsigned(addr);
     for (uint8_t i = 0; i < len; i++) {
         uint8_t *c = memory_at8(state->MEMORY, addr + i);
-        *c = toupper(*c);
+        *c = toupperf(*c);
     }
     return 0;
 }
@@ -1212,12 +1208,12 @@ int builtin_upper(InterpreterState *state) {
 int builtin_digit(InterpreterState *state) {
     pop_to_unsigned(base);
     pop_to_unsigned(chr);
-    int upper_chr = toupper(chr);
+    int upper_chr = toupperf(chr);
     if (chr >= '0' && chr <= '9' && chr-'0' < base) {
         push_from(chr - '0');
         push_from(-1);
     } else if (upper_chr >= 'A' && upper_chr-'A' < base-10) {
-        push_from(upper_chr - 'A');
+        push_from(upper_chr - 'A' + 10);
         push_from(-1);
     } else {
         push_from(chr);
@@ -1226,19 +1222,108 @@ int builtin_digit(InterpreterState *state) {
     return 0;
 }
 
+int builtin_rpick(InterpreterState *state) {
+    pop_to_unsigned(n);
+    uint16_t value;
+    int ret = pick_return_stack(state->MEMORY, n, &value);
+    if (ret != 0) return ret;
+    push_from(value);
+    return 0;
+}
+
 int builtin_sp_fetch(InterpreterState *state) {
-    uint16_t sp = *state->MEMORY->SP0_var - state->MEMORY->data_stack_size + 1;
+    uint16_t sp = *state->MEMORY->SP0_var - 2*state->MEMORY->data_stack_size + 2;
     push_from(sp);
     return 0;
 }
 
 int builtin_rp_fetch(InterpreterState *state) {
-    uint16_t rp = *state->MEMORY->RP0_var - state->MEMORY->return_stack_size + 1;
+    uint16_t rp = *state->MEMORY->RP0_var - 2*state->MEMORY->return_stack_size + 2;
     push_from(rp);
     return 0;
 }
 
-int see(InterpreterState *state, Definition *definition) {
+int builtin_sp_store(InterpreterState *state) {
+    pop_to_unsigned(new_sp);
+    uint16_t i = (*state->MEMORY->SP0_var - new_sp + 2);
+    state->MEMORY->data_stack_size = i / 2;
+    return 0;
+}
+
+int builtin_rp_store(InterpreterState *state) {
+    pop_to_unsigned(new_rp);
+    uint16_t i = (*state->MEMORY->RP0_var - new_rp + 2);
+    state->MEMORY->return_stack_size = i / 2;
+    return 0;
+}
+
+int builtin_u_two_divide(InterpreterState *state) {
+    pop_to_unsigned(u);
+    push_from(u >> 1);
+    return 0;
+}
+
+int builtin_u_greater_than(InterpreterState *state) {
+    pop_to_unsigned(n2);
+    pop_to_unsigned(n1);
+    push_from(n1 > n2 ? -1 : 0);
+    return 0;
+}
+
+int builtin_s_to_d(InterpreterState *state) {
+    pop_to_signed(n);
+    int32_t n32 = n;
+    push_from_32bit(n32);
+    return 0;
+}
+
+int builtin_comp(InterpreterState *state) {
+    pop_to_unsigned(len);
+    pop_to_unsigned(addr2);
+    pop_to_unsigned(addr1);
+    for (uint16_t i = 0; i < len; i++) {
+        uint8_t a = *memory_at8(state->MEMORY, addr1+i);
+        uint8_t b = *memory_at8(state->MEMORY, addr2+i);
+        if (a < b) {
+            push_from(-1);
+            return 0;
+        } else if (a > b) {
+            push_from(1);
+            return 0;
+        }
+    }
+    push_from(0);
+    return 0;
+}
+
+int builtin_caps_comp(InterpreterState *state) {
+    pop_to_unsigned(len);
+    pop_to_unsigned(addr2);
+    pop_to_unsigned(addr1);
+    for (uint16_t i = 0; i < len; i++) {
+        uint8_t a = *memory_at8(state->MEMORY, addr1+i);
+        uint8_t b = *memory_at8(state->MEMORY, addr2+i);
+        a = toupperf(a);
+        b = toupperf(b);
+        if (a < b) {
+            push_from(-1);
+            return 0;
+        } else if (a > b) {
+            push_from(1);
+            return 0;
+        }
+    }
+    push_from(0);
+    return 0;
+}
+
+int builtin_finnish(InterpreterState *state) {
+    pop_to_signed(u);
+    FINNISH = u != 0;
+    return 0;
+}
+
+void see(InterpreterState *state, Definition *definition) {
     if (definition->type == DEFINITION_TYPE_VARIABLE) {
         printf("VARIABLE %s Value = %d", definition->name, *memory_at16(state->MEMORY, definition->pfa));
     } else if (definition->type == DEFINITION_TYPE_CONSTANT) {
@@ -1250,9 +1335,10 @@ int see(InterpreterState *state, Definition *definition) {
             printf(" IMMEDIATE");
         }
     } else if (definition->type == DEFINITION_TYPE_CALL || definition->type == DEFINITION_TYPE_DOES) {
-        printf(": %s\n  ", definition->name);
         if (definition->type == DEFINITION_TYPE_DOES) {
-            printf("DOES> ");
+            printf("%s DOES> ", definition->name);
+        } else {
+            printf(": %s\n  ", definition->name);
         }
         uint16_t code_p = definition->code_p;
         for (int i = 0;; i += 2) {
@@ -1274,7 +1360,7 @@ int see(InterpreterState *state, Definition *definition) {
                 printf("?BRANCH %d ", value);
                 i += 2;
             } else {
-                Definition *d = get_definition(state->MEMORY, TO_NAME(addr));
+                Definition *d = get_definition(state->MEMORY, TO_NAME(state->MEMORY, addr));
                 if (d != 0 && *d->name != '\0') {
                     printf("%s ", d->name);
                     free_definition(d);
@@ -1305,6 +1391,15 @@ int builtin_see(InterpreterState *state) {
     see(state, definition);
     free_definition(definition);
     free(word);
+    return 0;
+}
+
+int builtin_breakpoint(InterpreterState *state) {
+    read_name(word, definition);
+    state->breakpoint = FROM_BODY(definition->pfa);
+    free_definition(definition);
+    free(word);
+    return 0;
 }
 
 int builtin_noop(InterpreterState *state) {
@@ -1513,10 +1608,21 @@ BuiltinFunction BUILTINS[MAX_BUILTINS] = {
     [BUILTIN_WORD_BDOS] = builtin_bdos,
     [BUILTIN_WORD_UPPER] = builtin_upper,
     [BUILTIN_WORD_DIGIT] = builtin_digit,
+    [BUILTIN_WORD_RPICK] = builtin_rpick,
     [BUILTIN_WORD_SP_FETCH] = builtin_sp_fetch,
     [BUILTIN_WORD_RP_FETCH] = builtin_rp_fetch,
+    [BUILTIN_WORD_SP_STORE] = builtin_sp_store,
+    [BUILTIN_WORD_RP_STORE] = builtin_rp_store,
+    [BUILTIN_WORD_U_TWO_DIVIDE] = builtin_u_two_divide,
+    [BUILTIN_WORD_U_GREATER_THAN] = builtin_u_greater_than,
+    [BUILTIN_WORD_S_TO_D] = builtin_s_to_d,
+    [BUILTIN_WORD_COMP] = builtin_comp,
+    [BUILTIN_WORD_CAPS_COMP] = builtin_caps_comp,
+
+    [BUILTIN_WORD_FINNISH] = builtin_finnish,
 
     [BUILTIN_WORD_SEE] = builtin_see,
+    [BUILTIN_WORD_BREAKPOINT] = builtin_breakpoint,
 };
 
 int execute_builtin(InterpreterState *state, enum BuiltinWord word) {
@@ -1730,8 +1836,19 @@ void add_builtins(AddBuiltinFunction add_builtin) {
     add_builtin("BDOS", BUILTIN_WORD_BDOS, 0);
     add_builtin("UPPER", BUILTIN_WORD_UPPER, 0);
     add_builtin("DIGIT", BUILTIN_WORD_DIGIT, 0);
+    add_builtin("RPICK", BUILTIN_WORD_RPICK, 0);
     add_builtin("RP@", BUILTIN_WORD_RP_FETCH, 0);
+    add_builtin("SP!", BUILTIN_WORD_SP_STORE, 0);
+    add_builtin("RP!", BUILTIN_WORD_RP_STORE, 0);
+    add_builtin("U2/", BUILTIN_WORD_U_TWO_DIVIDE, 0);
+    add_builtin("U>", BUILTIN_WORD_U_GREATER_THAN, 0);
+    add_builtin("S>D", BUILTIN_WORD_S_TO_D, 0);
+    add_builtin("COMP", BUILTIN_WORD_COMP, 0);
+    add_builtin("CAPS-COMP", BUILTIN_WORD_CAPS_COMP, 0);
+
+    add_builtin("FINNISH!", BUILTIN_WORD_FINNISH, 0);
 
     // Debug words
     add_builtin("SEE", BUILTIN_WORD_SEE, 0);
+    add_builtin("BREAKPOINT", BUILTIN_WORD_BREAKPOINT, 0);
 }

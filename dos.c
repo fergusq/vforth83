@@ -5,7 +5,10 @@
 #include <glob.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <time.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include "dos.h"
 #include "memory.h"
@@ -194,12 +197,37 @@ uint16_t get_file_time(char *filename) {
     return (hours << 11) | (minutes << 5) | seconds;
 }
 
+uint8_t mode = 0;
+
+void changemode(uint8_t newmode) {
+    static struct termios oldt, newt;
+
+    if (newmode == 1) {
+        mode = 1;
+        tcgetattr( STDIN_FILENO, &oldt);
+        newt = oldt;
+        newt.c_lflag &= ~(ICANON | ECHO);
+        tcsetattr( STDIN_FILENO, TCSANOW, &newt);
+    } else {
+        mode = 0;
+        tcgetattr( STDIN_FILENO, &oldt);
+        newt = oldt;
+        newt.c_lflag |= (ICANON | ECHO);
+        tcsetattr( STDIN_FILENO, TCSANOW, &newt);
+    }
+}
+
 uint8_t function_00H_Terminate_Process(Memory *memory, uint16_t unused) {
     exit(0);
 }
 
 uint8_t function_01H_Character_Input_With_Echo(Memory *memory, uint16_t unused) {
-    return getchar();
+    int result = getchar();
+    if (mode == 1) {
+        // We need manual echo
+        printf("%c", result);
+    }
+    return result;
 }
 
 uint8_t function_02H_Character_Output(Memory *memory, uint16_t character) {
@@ -222,11 +250,26 @@ uint8_t function_06H_Direct_Console_IO(Memory *memory, uint16_t character) {
         putchar(character);
         return 0;
     }
-}
+}s
 */
 
 uint8_t function_08H_Character_Input_Without_Echo(Memory *memory, uint16_t character) {
+    changemode(1);
     return getchar();
+}
+
+uint8_t function_0BH_Check_Keyboard_Status(Memory *memory, uint16_t unused) {
+    struct timeval tv;
+    fd_set rdfs;
+
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+    FD_ZERO(&rdfs);
+    FD_SET(STDIN_FILENO, &rdfs);
+
+    select(STDIN_FILENO+1, &rdfs, NULL, NULL, &tv);
+    return FD_ISSET(STDIN_FILENO, &rdfs) ? 0xFF : 0x00;
 }
 
 /*** FILE IO ***/
@@ -238,7 +281,7 @@ FILE *OPEN_FILES[MAX_OPEN_FILES] = {0};
 uint8_t function_0FH_Open_File(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
     if (fcb->reserved[0] != 0) { // Check if this is already associated with a file handle
-        return 0xFF;
+        return 0x00;
     }
     char *filename = get_filename(fcb);
     char *real_filename = get_real_filename(filename);
@@ -270,7 +313,7 @@ uint8_t function_0FH_Open_File(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_10H_Close_File(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check that the file is open
         return 0xFF;
     }
     fclose(OPEN_FILES[fcb->reserved[0] - 1]);
@@ -342,7 +385,7 @@ uint8_t function_13H_Delete_File(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_14H_Sequential_Read(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check that the file is open
         return 0xFF;
     }
     FILE *file = OPEN_FILES[fcb->reserved[0] - 1];
@@ -443,7 +486,7 @@ uint8_t function_1AH_Set_DTA_Address(Memory *memory, uint16_t dta) {
 
 uint8_t function_21H_Random_Read(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check that the file is open
         return 0xFF;
     }
     FILE *file = OPEN_FILES[fcb->reserved[0] - 1];
@@ -481,7 +524,7 @@ uint8_t function_21H_Random_Read(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_22H_Random_Write(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
-    if (fcb->reserved[0] == 0) { // Check if this is already associated with a file handle
+    if (fcb->reserved[0] == 0) { // Check that the file is open
         return 0xFF;
     }
     FILE *file = OPEN_FILES[fcb->reserved[0] - 1];
@@ -510,20 +553,27 @@ uint8_t function_22H_Random_Write(Memory *memory, uint16_t fcb_pointer) {
 
 uint8_t function_23H_Get_File_Size(Memory *memory, uint16_t fcb_pointer) {
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
+    FILE *file;
+    size_t size;
     if (fcb->reserved[0] != 0) { // Check if this is already associated with a file handle
-        return 0xFF;
+        file = OPEN_FILES[fcb->reserved[0] - 1];
+        fseek(file, 0, SEEK_END);
+        size = ftell(file);
+    } else {
+        char *filename = get_filename(fcb);
+        char *real_filename = get_real_filename(filename);
+        file = fopen(real_filename, "r");
+        free(real_filename);
+        free(filename);
+        if (file == NULL) {
+            return 0xFF;
+        }
+        fseek(file, 0, SEEK_END);
+        size = ftell(file);
+        fclose(file);
     }
-    char *filename = get_filename(fcb);
-    char *real_filename = get_real_filename(filename);
-    FILE *file = fopen(real_filename, "w");
-    free(real_filename);
-    free(filename);
-    if (file == NULL) {
-        return 0xFF;
-    }
-    fseek(file, 0, SEEK_END);
-    size_t size = ftell(file);
-    return size / fcb->record_size;
+    fcb->random_record_number = size / fcb->record_size;
+    return 0x00;
 }
 
 SysCallFunction DOS_SYSCALLS[] = {

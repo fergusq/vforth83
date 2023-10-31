@@ -31,7 +31,7 @@ typedef struct _FCB {
     uint16_t time_stamp;
     uint8_t reserved[8];
     uint8_t current_record_number;
-    uint8_t random_record_number;
+    uint16_t random_record_number;
 } __attribute__((packed)) FCB;
 
 typedef struct _XFCB {
@@ -48,7 +48,7 @@ typedef struct _XFCB {
     uint16_t time_stamp;
     uint8_t reserved2[8];
     uint8_t current_record_number;
-    uint8_t random_record_number;
+    uint16_t random_record_number;
 } __attribute__((packed)) XFCB;
 
 FCB *xfcb_to_fcb(XFCB *xfcb);
@@ -73,6 +73,8 @@ uint8_t function_05H_Print_Character(Memory *memory, uint16_t character);
 //uint8_t function_06H_Direct_Console_IO(Memory *memory, uint16_t unused);
 //uint8_t function_07H_Unfiltered_Character_Input_Without_Echo(uint8_t *character);
 uint8_t function_08H_Character_Input_Without_Echo(Memory *memory, uint16_t character);
+//
+uint8_t function_0BH_Check_Keyboard_Status(Memory *memory, uint16_t unused);
 
 // File system calls
 

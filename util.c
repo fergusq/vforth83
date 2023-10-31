@@ -2,16 +2,48 @@
 #include <stdint.h>
 #include <ctype.h>
 #include <string.h>
+#include <wchar.h>
 
 #include "util.h"
+
+uint8_t FINNISH = 0;
+
+uint8_t toupperf(uint8_t chr) {
+    if (FINNISH) {
+        switch (chr) {
+        case '{': return '[';
+        case ']': return '}';
+        case '|': return '\\';
+        default: return toupper(chr);
+        }
+    } else {
+        return toupper(chr);
+    }
+}
 
 uint8_t *upper(uint8_t *str) {
     uint8_t *upper_str = malloc(strlen(str) + 1);
     for (int i = 0; i < strlen(str); i++) {
-        upper_str[i] = toupper(str[i]);
+        upper_str[i] = toupperf(str[i]);
     }
     upper_str[strlen(str)] = 0;
     return upper_str;
+}
+
+wchar_t fix_finnish(uint16_t chr) {
+    if (FINNISH) {
+        switch (chr) {
+        case '{': return L'ä';
+        case '[': return L'Ä';
+        case ']': return L'å';
+        case '}': return L'Å';
+        case '|': return L'ö';
+        case '\\': return L'Ö';
+        default: return chr;
+        }
+    } else {
+        return chr;
+    }  
 }
 
 // Data for Pearson Hash
