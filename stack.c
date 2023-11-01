@@ -1,5 +1,6 @@
 #include <malloc.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "stack.h"
 
