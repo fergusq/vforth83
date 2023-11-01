@@ -7,7 +7,9 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <time.h>
+#ifndef NO_TERMIOS
 #include <termios.h>
+#endif
 #include <unistd.h>
 
 #include "dos.h"
@@ -200,6 +202,7 @@ uint16_t get_file_time(char *filename) {
 uint8_t mode = 0;
 
 void changemode(uint8_t newmode) {
+#ifndef NO_TERMIOS
     static struct termios oldt, newt;
 
     if (newmode == 1) {
@@ -215,6 +218,7 @@ void changemode(uint8_t newmode) {
         newt.c_lflag |= (ICANON | ECHO);
         tcsetattr( STDIN_FILENO, TCSANOW, &newt);
     }
+#endif
 }
 
 uint8_t function_00H_Terminate_Process(Memory *memory, uint16_t unused) {
