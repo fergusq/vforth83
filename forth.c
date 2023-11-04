@@ -13,6 +13,7 @@
 #include "input_stream.h"
 #include "errors.h"
 #include "util.h"
+#include "io.h"
 
 #define print_error(err) {\
         char *message = get_error_string(err);\
@@ -35,7 +36,7 @@ void init_forth() {
     state->breakpoint = 0;
     state->debug = 0;
 
-    allot(state->MEMORY, 2*1024);
+    //allot(state->MEMORY, 2*1024);
 }
 
 void free_forth() {
@@ -45,15 +46,15 @@ void free_forth() {
 }
 
 void add_builtin(char *name, enum BuiltinWord word, uint8_t is_immediate) {
-    char *uppername = upper(name);
     if (BUILTINS[word] == 0) {
         return;
     }
+    char *uppername = upper(name);
     add_definition(state->MEMORY, uppername, is_immediate, DEFINITION_TYPE_BUILTIN, 1);
     uint16_t addr = insert16(state->MEMORY, word);
     state->BUILTINS[word] = FROM_BODY(addr);
     if (addr == 0) {
-        printf("error while defining builtin %s\n", uppername);
+        fprintf(stderr, "error while defining builtin %s\n", uppername);
     }
     free(uppername);
 }
@@ -101,6 +102,8 @@ void create_forth_vocabulary() {
     state->CURRENT_var = memory_at16(state->MEMORY, add_variable("CURRENT"));
     state->CAPS_var = memory_at16(state->MEMORY, add_variable("CAPS"));
     state->VOC_LINK_var = memory_at16(state->MEMORY, add_variable("VOC-LINK"));
+    state->NUMBER_OUT_var = memory_at16(state->MEMORY, add_variable("#OUT"));
+    state->NUMBER_LINE_var = memory_at16(state->MEMORY, add_variable("#LINE"));
     add_constant("#VOCS", NUM_VOCS);
 
     // Initialize variables
@@ -129,16 +132,89 @@ void create_forth_vocabulary() {
     }
 }
 
+#define save_to_file(var, name) uint16_t var ## _cfa = find_word_cfa(state->MEMORY, name); fwrite(&var ## _cfa, sizeof(uint16_t), 1, file);
+#define read_from_file(var) uint16_t var ## _cfa = 0; fread(&var ## _cfa, sizeof(uint16_t), 1, file); state->var ## _var = memory_at16(state->MEMORY, TO_BODY(var ## _cfa));
+
+void save_state_to_file(FILE *file) {
+    // Save memory to file
+    fwrite(state->MEMORY->memory, sizeof(uint8_t), MEMORY_SIZE, file);
+
+    // Save memory pointer
+    fwrite(&state->MEMORY->memory_pointer, sizeof(uint16_t), 1, file);
+
+    // Save builtin table
+    fwrite(state->BUILTINS, sizeof(uint16_t), 256, file);
+
+    // Save variables to file
+    save_to_file(BLK, "BLK");
+    save_to_file(NUMBER_TIB, "#TIB");
+    save_to_file(TO_IN, ">IN");
+    save_to_file(SP0, "SP0");
+    save_to_file(RP0, "RP0");
+    save_to_file(BASE, "BASE");
+    save_to_file(SPAN, "SPAN");
+    save_to_file(STATE, "STATE");
+    save_to_file(LAST, "LAST");
+    save_to_file(CURRENT, "CURRENT");
+    save_to_file(CONTEXT, "CONTEXT");
+    save_to_file(CAPS, "CAPS");
+    save_to_file(VOC_LINK, "VOC-LINK");
+    save_to_file(NUMBER_OUT, "#OUT");
+    save_to_file(NUMBER_LINE, "#LINE");
+
+    // Save input buffer location
+    save_to_file(TIB, "TIB");
+}
+
+void read_state_from_file(FILE *file) {
+    // Read memory from file
+    fread(state->MEMORY->memory, 1, MEMORY_SIZE, file);
+
+    // Read memory pointer
+    fread(&state->MEMORY->memory_pointer, sizeof(uint16_t), 1, file);
+
+    // Read builtin table
+    fread(state->BUILTINS, sizeof(uint16_t), 256, file);
+
+    // Read variables from file
+    read_from_file(BLK);
+    read_from_file(NUMBER_TIB);
+    read_from_file(TO_IN);
+    read_from_file(SP0);
+    read_from_file(RP0);
+    read_from_file(BASE);
+    read_from_file(SPAN);
+    read_from_file(STATE);
+    read_from_file(LAST);
+    read_from_file(CURRENT);
+    read_from_file(CONTEXT);
+    read_from_file(CAPS);
+    read_from_file(VOC_LINK);
+    read_from_file(NUMBER_OUT);
+    read_from_file(NUMBER_LINE);
+
+    // Set variables that are also stored in the MEMORY struct
+    state->MEMORY->SP0_var = state->SP0_var;
+    state->MEMORY->RP0_var = state->RP0_var;
+    state->MEMORY->LAST_var = state->LAST_var;
+    state->MEMORY->CURRENT_var = state->CURRENT_var;
+    state->MEMORY->CONTEXT_var = state->CONTEXT_var;
+
+    // Read input buffer location
+    uint16_t TIB_cfa = find_word_cfa(state->MEMORY, "TIB");
+    state->INPUT_BUFFER = memory_at8(state->MEMORY, TO_BODY(TIB_cfa));
+}
+
 void execute_system(char *filename) {
     FILE *file = fopen(filename, "r");
     if (file == 0) {
-        printf("error: could not open %s\n", filename);
+        fprintf(stderr, "error: could not open %s\n", filename);
         return;
     }
 
     // Read line by line and interpret
     while (1) {
-        int err = read_paragraph_to_input_buffer_from_file(state, file);
+        int err = read_line_to_input_buffer_from_file(state, file);
         if (err == ERROR_END_OF_INPUT) break;
         else if (err != 0) {
             print_error(err);
@@ -146,9 +222,9 @@ void execute_system(char *filename) {
         }
         if (VERBOSE) {
             for (int i = 0; i < *state->NUMBER_TIB_var; i++) {
-                printf("%c", state->INPUT_BUFFER[i]);
+                fprintf(stderr, "%c", state->INPUT_BUFFER[i]);
             }
-            printf("\n");
+            fprintf(stderr, "\n");
         }
         if (interpret_from_input_stream() != 0) break;
     }
@@ -166,7 +242,7 @@ void print_stack_trace(FILE *file) {
         free_definition(dbg_call_stack_definition);
     }
     fprintf(file, " || ");
-    for (int i = state->MEMORY->return_stack_size - 1; i >= 0; i--) {
+    for (int i = 0; i < state->MEMORY->return_stack_size ; i++) {
         uint16_t cfa;
         pick_return_stack(state->MEMORY, i, &cfa);
         fprintf(file, " < %d", cfa);
@@ -203,20 +279,18 @@ int pop_debug_frame(uint16_t *cfa) {
 }
 
 void step(uint16_t next_cfa) {
-    printf("Stack trace: ");
+    printf("\nStack trace: ");
     print_stack_trace(stdout);
-    printf("\n");
     Definition *def = get_definition(state->MEMORY, TO_NAME(state->MEMORY, next_cfa));
-    printf("Stack:");
+    printf("\nStack:");
     for (int i = state->MEMORY->data_stack_size - 1; i >= 0; i--) {
         uint16_t value;
         pick_data_stack(state->MEMORY, i, &value);
         printf(" %7d", value);
     }
-    printf("\n");
-    printf("Next instruction: %s\n", def->name);
+    printf("\nNext instruction: %s", def->name);
     loop: while (1) {
-        printf("N=Next C=Continue > ");
+        printf("\nN=Next C=Continue > ");
         char cmd[10];
         fgets(cmd, 9, stdin);
         switch (cmd[0]) {
@@ -233,6 +307,7 @@ void step(uint16_t next_cfa) {
         }
     }
     end:
+    free_definition(def);
 }
 
 // *** Interpreter ***
@@ -271,7 +346,7 @@ int interpret_from_input_stream() {
                 value = value * *state->BASE_var + chr;
             }
             if (num_parsing_error) {
-                printf("%s?\n", word);
+                forth_printf("%s?\n", word);
                 free(word);
                 return 1;
             } else {
@@ -389,13 +464,18 @@ int execute_word(uint16_t cfa) {
     } else if (type == DEFINITION_TYPE_BUILTIN) {
         // Builtins are executed with their respective functions in builtins.c
         int ret = execute_builtin(state, *memory_at16(state->MEMORY, TO_BODY(cfa)));
+        //int y, x;
+        //forth_getyx(&y, &x);
+        //*state->NUMBER_OUT_var = x;
+        //*state->NUMBER_LINE_var = y;
         return ret;
     } else if (type == DEFINITION_TYPE_CALL || type == DEFINITION_TYPE_DOES) {
         // Colon definitions are executed by moving the program counter to the parameter field
         push_debug_frame(cfa);
         int ret = push_return_stack(state->MEMORY, state->program_counter);
         if (ret != 0) return ret;
-        state->program_counter = *memory_at16(state->MEMORY, TO_CODE_P(cfa));
+        uint16_t code_p = *memory_at16(state->MEMORY, TO_CODE_P(cfa));
+        state->program_counter = type == DEFINITION_TYPE_CALL ? TO_BODY(code_p) : code_p;
 
         if (type == DEFINITION_TYPE_DOES) {
             // If we are executing a DOES> word, we need to push the address of the word's parameter field to the stack
@@ -412,34 +492,41 @@ int execute_word(uint16_t cfa) {
         // Deferred words are executed by executing their parameter field
         return execute_word(*memory_at16(state->MEMORY, TO_BODY(cfa)));
     } else {
-        fprintf(stderr, "Unknown definition: %u\n", type);
+        fprintf(stderr, "Unknown definition type: %u\n", type);
         // This should never happen
         return ERROR_UNKNOWN_DEFINITION_TYPE;
     }
 }
 
 void usage(FILE *file, char *program_name) {
-    fprintf(file, "usage: %s [-s SYSTEM_FILE] [-M MEMORY_FILE] [-t] [--finnish]\n", program_name);
+    fprintf(file, "usage: %s [-m MEMORY_FILE] {-s SYSTEM_FILE} [-M MEMORY_FILE] [-t] [-i | --curses] [--finnish]\n", program_name);
 }
 
 int main(int argc, char *argv[]) {
-    setlocale(LC_CTYPE, "");
-    char *memory_file = 0;
-    char *system_file = "system.f";
+    setlocale(LC_ALL, "C.UTF-8");
+    char *input_memory_file = 0, *output_memory_file = 0;
+    uint8_t curses = 0, interactive=0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(stdout, argv[0]);
             return 0;
         } else if (strcmp(argv[i], "-s") == 0) {
-            system_file = argv[i+1];
+            // These are handled in another loop below
+            i += 1;
+        } else if (strcmp(argv[i], "-m") == 0) {
+            input_memory_file = argv[i+1];
             i += 1;
         } else if (strcmp(argv[i], "-M") == 0) {
-            memory_file = argv[i+1];
+            output_memory_file = argv[i+1];
             i += 1;
         } else if (strcmp(argv[i], "-t") == 0) {
             TRACE = 1;
         } else if (strcmp(argv[i], "--finnish") == 0) {
             FINNISH = 1;
+        } else if (strcmp(argv[i], "-i") == 0) {
+            interactive = 1;
+        } else if (strcmp(argv[i], "--curses") == 0) {
+            curses = 1;
         } else if (strcmp(argv[i], "--verbose") == 0) {
             VERBOSE = 1;
         } else {
@@ -448,30 +535,69 @@ int main(int argc, char *argv[]) {
             return 1;
         }
     }
+    
     init_forth();
-    create_forth_vocabulary();
-    execute_system(system_file);
+
+    // Read memory from file
+    if (input_memory_file != 0) {
+        FILE *fp = fopen(input_memory_file, "rb");
+        if (fp == 0) {
+            fprintf(stderr, "error: could not open %s\n", input_memory_file);
+            return 1;
+        }
+        read_state_from_file(fp);
+        fclose(fp);
+    } else {
+        // Create from scratch
+        create_forth_vocabulary();
+    }
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-s") == 0) {
+            execute_system(argv[++i]);
+        }
+    }
 
     // Save memory to file
-    if (memory_file != 0) {
-        FILE *fp = fopen(memory_file, "wb");
-        fwrite(state->MEMORY->memory, 1, MEMORY_SIZE, fp);
-        fclose(fp);
-    }
-
-    printf("---\n");
-
-    while (1) {
-        int err;
-        err = read_line_to_input_buffer(state);
-        if (err == ERROR_END_OF_INPUT) break;
-        else if (err != 0) {
-            print_error(err);
-            continue;
+    if (output_memory_file != 0) {
+        FILE *fp = fopen(output_memory_file, "wb");
+        if (fp == 0) {
+            fprintf(stderr, "error: could not open %s\n", output_memory_file);
+            free_forth();
+            return 1;
         }
-        err = interpret_from_input_stream();
-        if (err == 0) printf(" ok");
-        printf("\n");
+        save_state_to_file(fp);
+        fclose(fp);
+        free_forth();
+        return 0;
     }
+
+    if (curses) {
+        // Let the Forth handle its input and output itself
+        init_io();
+        read_string_to_input_buffer(state, "COLD");
+        interpret_from_input_stream();
+        while (1) {
+            read_string_to_input_buffer(state, "QUIT");
+            interpret_from_input_stream();
+        }
+        free_io();
+    } else if (interactive) {
+        printf("---\n");
+        // Read line by line and interpret
+        while (1) {
+            int err;
+            err = read_line_to_input_buffer(state);
+            if (err == ERROR_END_OF_INPUT) break;
+            else if (err != 0) {
+                print_error(err);
+                continue;
+            }
+            err = interpret_from_input_stream();
+            if (err == 0) forth_printf(" ok");
+            forth_printf("\n");
+        }
+    }
+
     free_forth();
 }

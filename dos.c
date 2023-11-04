@@ -7,14 +7,11 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <time.h>
-#ifndef NO_TERMIOS
-#include <termios.h>
-#endif
-#include <unistd.h>
 
 #include "dos.h"
 #include "memory.h"
 #include "util.h"
+#include "io.h"
 
 uint8_t ZERO_FLAG;
 uint8_t *DTA;
@@ -199,81 +196,46 @@ uint16_t get_file_time(char *filename) {
     return (hours << 11) | (minutes << 5) | seconds;
 }
 
-uint8_t mode = 0;
-
-void changemode(uint8_t newmode) {
-#ifndef NO_TERMIOS
-    static struct termios oldt, newt;
-
-    if (newmode == 1) {
-        mode = 1;
-        tcgetattr( STDIN_FILENO, &oldt);
-        newt = oldt;
-        newt.c_lflag &= ~(ICANON | ECHO);
-        tcsetattr( STDIN_FILENO, TCSANOW, &newt);
-    } else {
-        mode = 0;
-        tcgetattr( STDIN_FILENO, &oldt);
-        newt = oldt;
-        newt.c_lflag |= (ICANON | ECHO);
-        tcsetattr( STDIN_FILENO, TCSANOW, &newt);
-    }
-#endif
-}
-
 uint8_t function_00H_Terminate_Process(Memory *memory, uint16_t unused) {
     exit(0);
 }
 
 uint8_t function_01H_Character_Input_With_Echo(Memory *memory, uint16_t unused) {
-    int result = getchar();
-    if (mode == 1) {
+    int result = forth_getch();
+    if (INPUT_MODE == INPUT_MODE_NO_ECHO) {
         // We need manual echo
-        printf("%c", result);
+        forth_addch(result);
     }
     return result;
 }
 
 uint8_t function_02H_Character_Output(Memory *memory, uint16_t character) {
-    putchar(character);
+    forth_addch(character);
     return 0;
 }
 
 uint8_t function_05H_Print_Character(Memory *memory, uint16_t character) {
-    putchar(character);
+    forth_addch(character);
     return 0;
 }
 
-/*
 uint8_t function_06H_Direct_Console_IO(Memory *memory, uint16_t character) {
     if (character == 0xFF) {
         // Should be non-blocking
         ZERO_FLAG = 0;
-        return getchar();
+        return forth_getch();
     } else {
-        putchar(character);
+        forth_addch(character);
         return 0;
     }
-}s
-*/
+}
 
 uint8_t function_08H_Character_Input_Without_Echo(Memory *memory, uint16_t character) {
-    changemode(1);
-    return getchar();
+    return forth_getch();
 }
 
 uint8_t function_0BH_Check_Keyboard_Status(Memory *memory, uint16_t unused) {
-    struct timeval tv;
-    fd_set rdfs;
-
-    tv.tv_sec = 0;
-    tv.tv_usec = 0;
-
-    FD_ZERO(&rdfs);
-    FD_SET(STDIN_FILENO, &rdfs);
-
-    select(STDIN_FILENO+1, &rdfs, NULL, NULL, &tv);
-    return FD_ISSET(STDIN_FILENO, &rdfs) ? 0xFF : 0x00;
+    return forth_kbhit() ? 0xFF : 0x00;
 }
 
 /*** FILE IO ***/
@@ -334,7 +296,7 @@ uint8_t function_11H_Find_First_File(Memory *memory, uint16_t fcb_pointer) {
     uint8_t xfcb = is_xfcb(memory_at8(memory, fcb_pointer));
     FCB *fcb = ensure_fcb(memory_at8(memory, fcb_pointer));
     char *filename = get_glob_filename(fcb);
-    printf("Searching for `%s'\n", filename);
+    //printf("Searching for `%s'\n", filename);
     if (glob_offset > 0) globfree(&globbuf);
     glob(filename, GLOB_NOESCAPE, NULL, &globbuf);
     free(filename);
@@ -342,9 +304,9 @@ uint8_t function_11H_Find_First_File(Memory *memory, uint16_t fcb_pointer) {
     if (glob_offset >= globbuf.gl_pathc) {
         return 0xFF;
     }
-    FCB *result = xfcb ? DTA - FCB_EXTENDED_FCB_FLAG_OFFSET : DTA;
+    FCB *result = (FCB *) (xfcb ? DTA - FCB_EXTENDED_FCB_FLAG_OFFSET : DTA);
     empty_fcb(result);
-    printf("Found for `%s'\n", globbuf.gl_pathv[glob_offset]);
+    //printf("Found for `%s'\n", globbuf.gl_pathv[glob_offset]);
     set_filename(result->file_name, result->file_extension, globbuf.gl_pathv[glob_offset]);
     glob_offset += 1;
     previous_glob_fcb = fcb_pointer;
@@ -359,7 +321,7 @@ uint8_t function_12H_Find_Next_File(Memory *memory, uint16_t fcb_pointer) {
         return 0xFF;
     }
     uint8_t xfcb = is_xfcb(memory_at8(memory, fcb_pointer));
-    FCB *result = xfcb ? DTA - FCB_EXTENDED_FCB_FLAG_OFFSET : DTA;
+    FCB *result = (FCB *) (xfcb ? DTA - FCB_EXTENDED_FCB_FLAG_OFFSET : DTA);
     empty_fcb(result);
     set_filename(result->file_name, result->file_extension, globbuf.gl_pathv[glob_offset]);
     glob_offset += 1;
@@ -585,7 +547,9 @@ SysCallFunction DOS_SYSCALLS[] = {
     [0x01] = function_01H_Character_Input_With_Echo,
     [0x02] = function_02H_Character_Output,
     [0x05] = function_05H_Print_Character,
+    [0x06] = function_06H_Direct_Console_IO,
     [0x08] = function_08H_Character_Input_Without_Echo,
+    [0x0B] = function_0BH_Check_Keyboard_Status,
     [0x0F] = function_0FH_Open_File,
     [0x10] = function_10H_Close_File,
     [0x11] = function_11H_Find_First_File,

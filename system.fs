@@ -15,17 +15,13 @@ CR .( Constants )
 
 1 CONSTANT DOCREATE
 2 CONSTANT DOCONSTANT
-291 CONSTANT DOCALL
+291 CONSTANT DOCOLON
 292 CONSTANT DODOES
 293 CONSTANT DODEFER
 
-CR .( Comments Part 1 )
-
-: \ >IN @ NEGATE C/L MOD >IN +! ; IMMEDIATE
-
 CR .( Block I/O Constants )
 
-\ These have been copied from KERNEL86.BLK
+( These have been copied from KERNEL86.BLK )
 
     2 CONSTANT #BUFFERS
  1024 CONSTANT B/BUF
@@ -44,8 +40,6 @@ FIRST >SIZE - CONSTANT INIT-R0
 
 CR .( Variables )
 
-VARIABLE  #OUT        ( NUMBER OF CHARACTERS EMITTED )
-VARIABLE  #LINE       ( THE NUMBER OF LINES SENT SO FAR )
 VARIABLE  OFFSET      ( RELATIVE TO ABSOLUTE DISK BLOCK 0 )
 VARIABLE  HLD         ( POINTS TO LAST CHARACTER HELD IN PAD )
 VARIABLE  FILE        ( POINTS TO FCB OF CURRENTLY OPEN FILE )
@@ -75,7 +69,6 @@ CR .( Address manipulation )
 : >VIEW >NAME 4 - ;
 : VIEW> 4 + NAME> ;
 
-
 CR .( Basic control structures )
 
 : COMPILE ( -- ) R> DUP 2+ >R @ , ;
@@ -90,7 +83,7 @@ CR .( Basic control structures )
 
 : (DO) R> -ROT SWAP >R >R >R ;
 : (LOOP) R> R> 1+ DUP R@ = -ROT >R >R ;
-: (+LOOP) R> R> ROT + DUP R@ = -ROT >R >R ;
+: (+LOOP) R> SWAP R> DUP R@ = -ROT + >R SWAP >R ;
 : (LOOP-EXIT) R> R> R> 2DROP >R ;
 : I 1 RPICK ;
 : J 3 RPICK ;
@@ -98,11 +91,23 @@ CR .( Basic control structures )
 : LEAVE COMPILE (LEAVE) ; IMMEDIATE
 : (?LEAVE) IF R> R> DROP R@ >R >R THEN ;
 : ?LEAVE COMPILE (?LEAVE) ; IMMEDIATE
+: UNLOOP COMPILE (LOOP-EXIT) ; IMMEDIATE
+
+: BEGIN ( -- sys ) <MARK ; IMMEDIATE
+: UNTIL ( sys -- ) COMPILE ?BRANCH <RESOLVE ; IMMEDIATE
+: AGAIN ( sys -- ) COMPILE BRANCH <RESOLVE ; IMMEDIATE
+: WHILE ( sys -- sys ) [COMPILE] IF 2SWAP ; IMMEDIATE
+: REPEAT ( sys -- ) [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
+
+: DO ( w1 w2 -- sys ) -1 [COMPILE] LITERAL [COMPILE] IF COMPILE (DO) <MARK ; IMMEDIATE
+: ?DO ( w1 w2 -- sys ) COMPILE 2DUP COMPILE <> [COMPILE] IF COMPILE (DO) <MARK ; IMMEDIATE
+: LOOP  ( sys -- ) COMPILE (LOOP)  COMPILE ?BRANCH <RESOLVE COMPILE (LOOP-EXIT) [COMPILE] ELSE COMPILE 2DROP [COMPILE] THEN ; IMMEDIATE
+: +LOOP ( sys -- ) COMPILE (+LOOP) COMPILE ?BRANCH <RESOLVE COMPILE (LOOP-EXIT) [COMPILE] ELSE COMPILE 2DROP [COMPILE] THEN ; IMMEDIATE
 
 CR .( Misc commands )
 
-: >= 1- > ;
-: <= 1+ < ;
+: >=    1- > ;
+: <=    1+ < ;
 : 0>=   0< NOT ;
 : 0<=   0> NOT ;
 
@@ -112,6 +117,8 @@ CR .( Misc commands )
 : .S ( -- ) DEPTH 0 (.S) 2DROP ;
 
 : ?STACK ;
+
+( These have been copied from KERNEL86.BLK )
 
 : 3DROP ( n1 n2 n3 -- ) 2DROP DROP ;
 : 3DUP ( n1 n2 n3 -- n1 n2 n3 n1 n2 n3 ) DUP 2OVER ROT ;
@@ -154,12 +161,48 @@ CR .( Create )
     ;
 
 CR .( DEFER BLOCK )
-5 HERE C! 66 HERE 1 + C! 76 HERE 2 + C! 79 HERE 3 + C! 67 HERE 4 + C! 75 HERE 5 + C!
+( 5         B              L              O              C              K )
+  5 HERE C! 66 HERE 1 + C! 76 HERE 2 + C! 79 HERE 3 + C! 67 HERE 4 + C! 75 HERE 5 + C!
 HERE DODEFER (CREATE) 2 ALLOT
+
+CR .( DEFER EMIT )
+' EMIT
+( 4         E              M              I              T )
+  4 HERE C! 69 HERE 1 + C! 77 HERE 2 + C! 73 HERE 3 + C! 84 HERE 4 + C!
+HERE DODEFER (CREATE) 2 ALLOT
+' EMIT >BODY !
+
+CR .( DEFER TYPE )
+' TYPE
+( 4         T              Y              P              E )
+  4 HERE C! 84 HERE 1 + C! 89 HERE 2 + C! 80 HERE 3 + C! 69 HERE 4 + C!
+HERE DODEFER (CREATE) 2 ALLOT
+' TYPE >BODY !
+
+CR .( Printing )
+
+( These have been copied from KERNEL86.BLK )
+
+8 CONSTANT BS
+
+: (CONSOLE)   PAUSE 6 BDOS DROP 1 #OUT +! ;
+: PR-STAT ( -- f )   TRUE   ( 0 15 BIOS )   ;
+: (PRINT)   ( char -- )
+   BEGIN  PAUSE  PR-STAT  UNTIL  5 BDOS DROP  1 #OUT +!  ;
+: (EMIT)   ( char -- )
+   PRINTING @ IF  DUP (PRINT)  -1 #OUT +!  THEN  (CONSOLE)  ;
+: CRLF   ( -- )  13 EMIT   10 EMIT   #OUT OFF  1 #LINE +! ;
+: CR CRLF ;
+: (TYPE)  ( addr len -- )  0 ?DO  COUNT EMIT  LOOP   DROP   ;
+
+: SPACE  ( -- )     BL EMIT   ;
+: SPACES ( n -- )   0 MAX   0 ?DO   SPACE   LOOP   ;
+: BACKSPACES   ( n -- )     0 ?DO   BS EMIT   LOOP   ;
+: BEEP   ( -- )     BELL EMIT   ;
 
 CR .( Parsing )
 
-\ These have been copied from KERNEL86.BLK
+( These have been copied from KERNEL86.BLK )
 
 : SOURCE ( addr len ) BLK @ ?DUP IF BLOCK B/BUF ELSE TIB #TIB @ THEN  ;
 : /STRING ( addr len n -- addr' len' ) OVER MIN ROT OVER + -ROT - ;
@@ -171,7 +214,7 @@ CR .( Parsing )
 : DEFINED ( -- cfa ) BL WORD ?UPPERCASE DUP C@ IF FIND ELSE DROP END? ON  ['] NOOP 1 THEN ;
 : (.ID) ( addr len -- ) DUP 0<> IF 0 (DO) [ <MARK ] DUP I + C@ EMIT (LOOP) ?BRANCH [ <RESOLVE ] (LOOP-EXIT) 32 EMIT ELSE DROP THEN DROP ;
 : .ID ( addr -- ) COUNT (.ID) ;
-: >TYPE   TUCK PAD SWAP CMOVE PAD SWAP TYPE ;
+: >TYPE  TUCK PAD SWAP CMOVE PAD SWAP TYPE ;
 
 : ?ERROR ( addr len flag -- ) IF (.ID) CR ABORT ELSE 2DROP THEN ;
 : (ABORT") ( flag -- ) R@ COUNT ROT ?ERROR R> COUNT + >R ;
@@ -186,12 +229,21 @@ CR .( Parsing )
 
 : WARM ( -- ) TRUE ABORT" Warm Start";
 
-CR .( Comments Part 2 )
+CR .( Comments )
 
 : .( ASCII ) PARSE TYPE ; IMMEDIATE
 : ( ASCII ) PARSE 2DROP ; IMMEDIATE
 : (S ASCII ) PARSE 2DROP ; IMMEDIATE
 : \S END? ON ; IMMEDIATE
+
+: \  
+  BLK @
+  IF
+    >IN @ NEGATE C/L MOD >IN +!
+  ELSE
+    SOURCE >IN ! DROP
+  THEN
+; IMMEDIATE
 
 CR .( Definitions Part 1 )
 
@@ -200,11 +252,11 @@ CR .( Definitions Part 1 )
 : [COMPILE] ( -- ) ' , ; IMMEDIATE
 : CREATE ( -- )  BL WORD ?UPPERCASE DOCREATE (CREATE) ;
 : CONSTANT ( value -- ) CREATE , DOES> @ ;
-: VARIABLE ( value -- ) CREATE 2 ALLOT ;
+: VARIABLE ( -- ) CREATE 0 , ;
 
 CR .( Double extension set )
 
-: 2CONSTANT ( -- ) CREATE , , DOES> 2@ ;
+: 2CONSTANT ( dvalue -- ) CREATE , , DOES> 2@ ;
 : 2VARIABLE ( -- ) 0 0 2CONSTANT DOES> ;
 
 CR .( Deferred words )
@@ -236,15 +288,15 @@ CR .( Control structures )
 : BEGIN ( -- sys ) ?<MARK ; IMMEDIATE
 : UNTIL ( sys -- ) COMPILE ?BRANCH ?<RESOLVE ; IMMEDIATE
 : AGAIN ( sys -- ) COMPILE BRANCH ?<RESOLVE ; IMMEDIATE
-: WHILE ( sys -- sys ) [COMPILE] IF ; IMMEDIATE
-: REPEAT ( sys -- ) 2SWAP [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
+: WHILE ( sys -- sys ) [COMPILE] IF 2SWAP ; IMMEDIATE
+: REPEAT ( sys -- ) [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
 
 .( Do )
 
 : DO ( w1 w2 -- sys ) -1 [COMPILE] LITERAL [COMPILE] IF COMPILE (DO) ?<MARK ; IMMEDIATE
 : ?DO ( w1 w2 -- sys ) COMPILE 2DUP COMPILE <> [COMPILE] IF COMPILE (DO) ?<MARK ; IMMEDIATE
-: LOOP  ( sys -- ) COMPILE (LOOP)  COMPILE ?BRANCH ?<RESOLVE COMPILE (LOOP-EXIT) [COMPILE] THEN ; IMMEDIATE
-: +LOOP ( sys -- ) COMPILE (+LOOP) COMPILE ?BRANCH ?<RESOLVE COMPILE (LOOP-EXIT) [COMPILE] THEN ; IMMEDIATE
+: LOOP  ( sys -- ) COMPILE (LOOP)  COMPILE ?BRANCH ?<RESOLVE COMPILE (LOOP-EXIT) [COMPILE] ELSE COMPILE 2DROP [COMPILE] THEN ; IMMEDIATE
+: +LOOP ( sys -- ) COMPILE (+LOOP) COMPILE ?BRANCH ?<RESOLVE COMPILE (LOOP-EXIT) [COMPILE] ELSE COMPILE 2DROP [COMPILE] THEN ; IMMEDIATE
 
 CR .( Misc commands )
 
@@ -300,6 +352,8 @@ ONLY FORTH ALSO DEFINITIONS
 
 CR .( Number output )
 
+\ These have been copied from KERNEL86.BLK
+
 : HEX ( -- )     16 BASE ! ;
 : DECIMAL ( -- ) 10 BASE ! ;
 : OCTAL ( -- )    8 BASE ! ;
@@ -311,9 +365,21 @@ CR .( Number output )
 : # ( -- ) BASE @ MU/MOD ROT 9 OVER < IF 7 + THEN ASCII 0 + HOLD ;
 : #S ( -- ) BEGIN # 2DUP OR 0= UNTIL ;
 
-: (.) DUP ABS 0 <# #S ROT SIGN #> ;
-: (D.) TUCK DABS <# #S ROT SIGN #> ;
-: D. (D.) TYPE SPACE ;
+: (U.)  ( u -- a l )   0    <# #S #>   ;
+: U.    ( u -- )       (U.)   TYPE SPACE   ;
+: U.R   ( u l -- )     >R   (U.)   R> OVER - SPACES   TYPE   ;
+
+: (.)   ( n -- a l )   DUP ABS 0   <# #S   ROT SIGN   #>   ;
+: .     ( n -- )       (.)   TYPE SPACE   ;
+: .R    ( n l -- )     >R   (.)   R> OVER - SPACES   TYPE   ;
+
+: (UD.) ( ud -- a l )  <# #S #>   ;
+: UD.   ( ud -- )      (UD.)   TYPE SPACE   ;
+: UD.R  ( ud l -- )    >R   (UD.)   R> OVER - SPACES   TYPE  ;
+
+: (D.)  ( d -- a l )   TUCK DABS   <# #S   ROT SIGN  #>   ;
+: D.    ( d -- )       (D.)   TYPE SPACE   ;
+: D.R   ( d l -- )     >R   (D.)   R> OVER - SPACES   TYPE   ;
 
 CR .( Number input )
 
@@ -436,7 +502,7 @@ CR .( Interpreter )
 
 : INTERPRET ( -- )
     BEGIN
-        ( cr ." file:" file @ 1+ 13 type ."  blk:" blk @ . source >in @ /string swap ." addr:" . ." len:" . )
+        ( cr ." file:" file @ 1+ 13 type ."  blk:" blk @ . ." offset:" offset @ . source >in @ /string swap ." addr:" . ." len:" . )
         DEFINED IF
         ( dup >name ." executing " .id )
             EXECUTE
@@ -445,6 +511,7 @@ CR .( Interpreter )
             NUMBER DOUBLE? NOT
             IF DROP THEN
         THEN
+        ( cr .s )
         FALSE DONE?
     UNTIL ;
 : RUN ( -- )
@@ -481,8 +548,8 @@ VARIABLE CSP -1 CSP !
     HIDE
     ]
     LAST @ NAME>
-    DUP DOCALL SWAP !
-    DUP >BODY SWAP 2+ !
+    DUP DOCOLON SWAP !
+    DUP SWAP 2+ !
 ;
 
 DROP ( C implementation of : pushes the address to the stack, but our implementation of ; does not pop it )
@@ -540,7 +607,7 @@ FORTH DEFINITIONS
 : UPDATE   ( -- )   >UPDATE ON   ;
 : DISCARD  ( -- )   1 >UPDATE ! ( 1 BUFFER# ON ) ;
 : MISSING  ( -- ) >END 2- @ 0< IF  >END 2- OFF  >END 8 - WRITE-BLOCK  THEN >END 4 - @  >BUFFERS 4 + ! ( buffer )  1 >BUFFERS 6 + ! >BUFFERS DUP 8 + #BUFFERS 8* CMOVE>   ;
-: (BUFFER) ( n fcb -- a )   PAUSE  ABSENT? IF  MISSING  1 BUFFER#   4 + @  THEN  ;
+: (BUFFER) ( n fcb -- a )   PAUSE  ABSENT?  IF  MISSING  1 BUFFER#   4 + @  THEN  ;
 : BUFFER   ( n -- a )   FILE @ (BUFFER)  ;
 : (BLOCK)  ( n fcb -- a ) (BUFFER)  >UPDATE @ 0> IF  1 BUFFER#  DUP READ-BLOCK  6 + OFF  THEN  ;
 : DBLOCK    ( n -- a )   FILE @ (BLOCK)  ;
@@ -562,16 +629,6 @@ FORTH DEFINITIONS
 : (LOAD)     ( n -- )  [ DOS ] FILE @ >R   BLK @ >R   >IN @ >R >IN OFF  BLK !   IN-FILE @ FILE !   RUN   R> >IN !   R> BLK ! R> !FILES  ;
 DEFER LOAD
 ' (LOAD) IS LOAD
-
-: START ( -- ) EMPTY-BUFFERS DEFAULT ;
-DEFER BOOT
-: HELLO ( -- )
-    CR ." Virtual Forth 83"
-    CR ." Version 0.1"
-    START
-    ONLY FORTH ALSO DEFINITIONS
-;
-' HELLO IS BOOT
 
 CR .( File I/O )
 
@@ -625,10 +682,10 @@ FORTH DEFINITIONS
 CREATE VIEW-FILES   40 ALLOT  VIEW-FILES 40 ERASE
 : VIEWS   ( n -- )   [ DOS ] ?DEFINE 2DUP  40 + !   BODY> SWAP 2* VIEW-FILES + !  ;
 
-( 1 VIEWS KERNEL86.BLK
-2 VIEWS EXTEND86.BLK
-3 VIEWS CPU8086.BLK
-4 VIEWS UTILITY.BLK )
+\ 1 VIEWS KERNEL86.BLK
+\ 2 VIEWS EXTEND86.BLK
+\ 3 VIEWS CPU8086.BLK
+\ 4 VIEWS UTILITY.BLK
 
 FILE-IO
 
@@ -637,7 +694,17 @@ FILE-IO
 VARIABLE SCR 0 SCR !
 
 : .SCR   ( -- )   ." Screen # " SCR ? 8 SPACES ;
-: LIST   ( n -- ) 1 ?ENOUGH  CR  DUP SCR !   .SCR   L/SCR 0 DO CR  I 3 .R SPACE DUP BLOCK I C/L * + C/L -TRAILING >TYPE KEY? ?LEAVE LOOP  DROP CR ;
+: LIST   ( n -- )
+    1 ?ENOUGH
+    CR
+    DUP SCR !
+    .SCR
+    L/SCR 0 DO
+        CR I 3 .R SPACE
+        DUP BLOCK I C/L * + C/L -TRAILING >TYPE
+    KEY? ?LEAVE
+    LOOP
+    DROP CR ;
 
 : N   ( -- )      1 SCR +!  DISK-ERROR OFF  ;
 : B   ( -- )     -1 SCR +!  DISK-ERROR OFF  ;
@@ -655,50 +722,7 @@ VARIABLE SCR 0 SCR !
    ELSE  ." may be in current file: " FILE? ." screen "
 DUP . THEN LIST ;
 
-
-
-CR .( Misc commands )
-
-DEFER $JEMMA ' NOOP IS $JEMMA
-
-: QUERY   ( -- )
-   TIB 255 EXPECT SPAN @ #TIB !
-   $JEMMA BLK OFF  >IN OFF  ;
-
-: BEEP ( -- ) BELL EMIT ;
-: CTOGGLE ( n addr -- addr ) DUP C@ ROT XOR SWAP C! ;
-
-\ These have been copied from KERNEL86.BLK
-
-8 CONSTANT BS
-
-: (CONSOLE)   PAUSE 6 BDOS DROP 1 #OUT +! ;
-: PR-STAT ( -- f )   TRUE   ( 0 15 BIOS )   ;
-: (PRINT)   ( char -- )
-   BEGIN  PAUSE  PR-STAT  UNTIL  5 BDOS DROP  1 #OUT +!  ;
-: (EMIT)   ( char -- )
-   PRINTING @ IF  DUP (PRINT)  -1 #OUT +!  THEN  (CONSOLE)  ;
-: CRLF   ( -- )  13 EMIT   10 EMIT   #OUT OFF  1 #LINE +! ;
-
-\ : TYPE  ( addr len -- )   0 ?DO  COUNT EMIT  LOOP   DROP   ;
-
-: SPACE  ( -- )     BL EMIT   ;
-: SPACES ( n -- )   0 MAX   0 ?DO   SPACE   LOOP   ;
-: BACKSPACES   ( n -- )     0 ?DO   BS EMIT   LOOP   ;
-: BEEP   ( -- )     BELL EMIT   ;
-: BS-IN   ( n c -- 0 | n-1 )
-   DROP DUP IF   1-   BS   ELSE   BELL   THEN   EMIT   ;
-: (DEL-IN)   ( n c -- 0 | n-1 )
-   DROP DUP IF  1-  BS EMIT SPACE BS  ELSE  BELL  THEN  EMIT  ;
-: BACK-UP ( n c -- 0 )
-   DROP   DUP BACKSPACES   DUP SPACES   BACKSPACES   0   ;
-: RES-IN   ( c -- )
-   FORTH   TRUE ABORT" Reset" ;
-: P-IN  ( c -- )
-   DROP   PRINTING @ NOT PRINTING !  ;
-
-
-CR .( Terminal I/O )
+CR .( KEY )
 
 : (KEY?)  0 11 BDOS 0<> ;
 : (KEY)   BEGIN PAUSE (KEY?) UNTIL 0 8 BDOS ;
@@ -712,26 +736,105 @@ CR .( Terminal I/O )
 : RAW-MODE ['] (KEY?) IS KEY?
            ['] (KEY)  IS KEY ;
 
+CR .( Terminal I/O commands )
+
+\ These have been copied from KERNEL86.BLK
+
+: BS-IN   ( n c -- 0 | n-1 )
+   DROP DUP IF   1-   BS   ELSE   BELL   THEN   EMIT   ;
+: (DEL-IN)   ( n c -- 0 | n-1 )
+   DROP DUP IF  1-  BS EMIT SPACE BS  ELSE  BELL  THEN  EMIT  ;
+: BACK-UP ( n c -- 0 )
+   DROP   DUP BACKSPACES   DUP SPACES   BACKSPACES   0   ;
+: RES-IN   ( c -- )
+   FORTH   TRUE ABORT" Reset" ;
+: P-IN  ( c -- )
+   DROP   PRINTING @ NOT PRINTING !  ;
+
+: CR-IN ( m a n c -- m a m )
+   DROP   SPAN !   OVER   BL EMIT   ;
+: (CHAR)   ( a n char -- a n+1 )
+   3DUP EMIT + C!   1+   ;
+DEFER CHAR ' (CHAR) IS CHAR
+DEFER DEL-IN ' (DEL-IN) IS DEL-IN
+
+VARIABLE CC
+CREATE CC-FORTH
+ ] CHAR    CHAR   CHAR   CHAR   CHAR   CHAR    CHAR   CHAR
+   BS-IN   CHAR   CHAR   CHAR   CHAR   CR-IN   CHAR   CHAR
+   P-IN    CHAR   CHAR   CHAR   CHAR   BACK-UP CHAR   CHAR
+   BACK-UP CHAR   RES-IN CHAR   CHAR   CHAR    CHAR   CHAR [
+
+' CC-FORTH >BODY CC !
+
+: PERFORM @ EXECUTE ;
+
+: EXPECT   ( adr len -- )
+   DUP SPAN !   SWAP 0   ( len adr 0 )
+   BEGIN   2 PICK OVER - ( len adr #so-far #left )
+   WHILE   KEY DUP BL <
+     IF   DUP 2* CC @ + PERFORM
+     ELSE DUP 127 = IF   DEL-IN   ELSE   CHAR   THEN
+     THEN REPEAT    2DROP DROP   ;
+
+DEFER $JEMMA ' NOOP IS $JEMMA
+
+: QUERY   ( -- )
+   TIB 255 EXPECT SPAN @ #TIB !
+   $JEMMA BLK OFF  >IN OFF  ;
+
+: CTOGGLE ( n addr -- addr ) DUP C@ ROT XOR SWAP C! ;
+
+: QUIT   ( -- )
+   SP0 @ 'TIB !    BLK OFF   [COMPILE] [
+   BEGIN RP0 @ RP! STATUS QUERY  RUN
+      STATE @ NOT IF   ."  ok"   THEN   AGAIN  ;
+
+: START ( -- ) EMPTY-BUFFERS ( DEFAULT ) ;
+DEFER BOOT
+: HELLO ( -- )
+    CR ." Virtual Forth 83"
+    CR ." Version 0.1"
+    START
+    ONLY FORTH ALSO DEFINITIONS
+;
+' HELLO IS BOOT
+
+: COLD RAW-MODE BOOT QUIT ;
+: WARM TRUE ABORT" Warm Start" ;
+
+1 CONSTANT INITIAL
+: OK    ( -- )   INITIAL LOAD ;
+: BYE   ( -- )
+   CR   HERE 0 256 UM/MOD NIP 1+   DECIMAL U.   ." Pages"
+   0 0 BDOS  ;
+
 CR .( VIDIO )
 
-: vidio02 0 0 ;
-: vidio10 drop ;
-: vidio10cha emit ;
-: vidio20c BASE @ >R 0 FINNISH! DECIMAL <# ASCII H HOLD 0 #S ASCII ; HOLD 0 #S 91 HOLD 27 HOLD #> TYPE R> BASE ! 1 FINNISH! ;
-: vidio21 2drop 0 ;
-: vidio30 2drop drop ;
-: vidio30h 2drop drop ;
-: vidio40 2drop 2drop ;
-: vidio 2drop 2drop 0 0 0 0 ;
-: ibm-at 2drop ;
-: ibm-dark ;
+HEX
+
+: combine ( high low -- n ) FF and swap 100 * + ;
+: split ( n -- high low ) dup 100 / swap FF and ;
+
+: (vidio) ( ax bx cx dx -- ax bx cx dx ) 0 0 int10h 2drop ;
+: vidio02 ( -- row col ) 0300 0 0 0 (vidio) >r 3drop r> split ;
+: vidio10 ( mode -- ) 0 0 0 (vidio) 2drop 2drop ;
+: vidio10cha ( char -- ) FF and 900 or 2 1 0 (vidio) 2drop 2drop ;
+: vidio20c ( row col -- ) combine 0200 swap 0 swap 0 swap (vidio) 2drop 2drop ;
+: vidio21 ( row col -- color ) 0d00 -rot 0 -rot (vidio) 3drop ;
+: vidio30 ( row col color -- ) -rot 0 -rot (vidio) 2drop 2drop ;
+: vidio30h ( di bp ax -- ) -rot swap 0 -rot 0 -rot 0 -rot int10h 3drop 3drop ;
+: vidio40 ( dx cx bx ax -- ) swap >r >r swap r> -rot r> -rot (vidio) 2drop 2drop ;
+: vidio ( ax bx cx dx -- ax bx cx dx ) (vidio) ;
+: ibm-at ( col row -- ) swap combine 200 swap 0 swap 0 swap (vidio) 2drop 2drop ;
+: ibm-dark ( -- ) 0700 0 0 0 (vidio) 2drop 2drop ;
 : ibm-blot   ( col -- )   80 SWAP - SPACES   ;
-: linemove 2drop ;
 : zerofii drop ;
+
+DECIMAL
 
 : debug breakpoint ;
 : unbug cr ." unbug: Not implemented" ;
-: forget ' cr ." forget: Not implemented" ;
 : bye 0 0 BDOS ;
 : clear depth 0 ?do drop loop ;
 
@@ -740,14 +843,6 @@ CR .( VIDIO )
 CR .( Screen utils )
 
 \ These have been copied fro UTIL.BLK
-
-: N   ( -- )      1 SCR +!  DISK-ERROR OFF  ;
-: B   ( -- )     -1 SCR +!  DISK-ERROR OFF  ;
-: L   ( -- )     SCR @ LIST   ;
-: ESTABLISH   ( n -- )   FILE @ SWAP  1 BUFFER# 2! ;
-: (COPY)   ( from to -- )
-   OFFSET @ + SWAP IN-BLOCK DROP  ESTABLISH UPDATE ;
-: COPY   FLUSH (COPY) FLUSH ;
 
 VARIABLE HOPPED   ( # screens copy is offset )
 VARIABLE U/D
@@ -765,24 +860,50 @@ DEFER CONVEY-COPY   ' (COPY) IS CONVEY-COPY
 (  #1st-dest must follow TO )
    SWAP   BL WORD  NUMBER DROP   OVER -   HOP   SWAP   ;
 
-\ BOOT CR
+CR .( Additional ANS FORTH Words )
 
-CR .( BOOT )
+: >NUMBER  ( ud1 c-addr1 u1 -- ud2 c-addr2 u2 )
+    DUP 0 ?DO
+        SWAP
+        DUP C@ BASE @ DIGIT
+        NOT IF
+            DROP
+            SWAP
+            LEAVE
+        ELSE
+            0
+            ( ud1 u1 c-addr1 value 0 )
+            2ROT
+            BASE @ 1 M*/
+            D+
+            ( u1 c-addr1 base*ud1+value )
+            2SWAP
+            1+
+            SWAP
+            1-
+        THEN
+    LOOP
+;
+: ACCEPT   ( addr +n -- +n ) SPAN @ -ROT EXPECT SWAP SPAN ! ;
+: ALIGNED  ( n -- n ) DUP 1 AND + ;
+: CELLS    ( n -- n ) 2* ;
+: CELL+    ( n -- n ) 2+ ;
+: CHAR     ( n -- n ) [COMPILE] ASCII ;
+: [CHAR]   ( n -- n ) [COMPILE] ASCII ; IMMEDIATE
+: CHARS    ( n -- n ) ;
+: CHAR+    ( n -- n ) 1+ ;
+: INVERT   ( n -- n ) NOT ;
+: S"                  [COMPILE] " ; IMMEDIATE
+
+: POSTPONE
+    '
+    DUP >link 1- C@
+    IF
+        ,
+    ELSE
+        [COMPILE] LITERAL COMPILE ,
+    THEN
+; IMMEDIATE
 
 EMPTY-BUFFERS
-
- 1 VIEWS  KERNHPU.BLK     2 VIEWS    EXTEND.BLK
- 3 VIEWS        CPU.BLK   4 VIEWS     UTIHP.BLK
- 5 VIEWS     EDITOR.BLK   6 VIEWS    TURTLE.BLK
- 7 VIEWS     LISTAT.BLK   8 VIEWS   CONTROL.BLK
- 9 VIEWS       MUUT.BLK  10 VIEWS      EVAL.BLK
-11 VIEWS   sampogen.BLK  12 VIEWS      help.BLK
-13 VIEWS       BASE.BLK  14 VIEWS   GRKURSO.BLK
-15 VIEWS         es.BLK  16 VIEWS     sampo.BLK
-17 views     selita.blk  18 VIEWS      auta.blk
-
-define sampo.blk
-define auta.blk
-from editor.blk 1 load
-from sampogen.blk 1 load
 

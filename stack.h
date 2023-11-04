@@ -1,5 +1,5 @@
-#ifndef _STACK_H_
-#define _STACK_H_
+#ifndef STACK_H
+#define STACK_H
 
 typedef struct _Stack {
     uint16_t *bottom;

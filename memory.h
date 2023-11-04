@@ -1,5 +1,5 @@
-#ifndef _MEMORY_H
-#define _MEMORY_H
+#ifndef MEMORY_H
+#define MEMORY_H
 
 #include <stdint.h>
 
@@ -28,7 +28,9 @@ typedef struct _Definition {
     enum DefinitionType type;
     uint16_t code_p; // pointer within virtual memory, used for does> definitions
 
-    // Parameter field
+    // Addresses
+    uint16_t nfa;
+    uint16_t cfa;
     uint16_t pfa; // pointer within virtual memory
 } Definition;
 
@@ -74,7 +76,13 @@ uint16_t add_definition(Memory *memory, char *name, uint8_t is_immediate, enum D
 
 Definition *get_definition(Memory *memory, uint16_t p);
 
+uint16_t find_word_cfa(Memory *memory, uint8_t *name);
+
+uint16_t find_word_nfa(Memory *memory, uint8_t *name);
+
 Definition *find_word(Memory *memory, uint8_t *name);
+
+void forget(Memory *memory, Definition *definition);
 
 void free_definition(Definition *definition);
 

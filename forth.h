@@ -1,5 +1,5 @@
-#ifndef _FORTH_H
-#define _FORTH_H
+#ifndef FORTH_H
+#define FORTH_H
 
 #include <stdint.h>
 #include <stdio.h>
@@ -36,6 +36,8 @@ typedef struct _InterpreterState {
     uint16_t *CONTEXT_var;
     uint16_t *CAPS_var;
     uint16_t *VOC_LINK_var;
+    uint16_t *NUMBER_OUT_var;
+    uint16_t *NUMBER_LINE_var;
 
     // Bytecode interpreter state
 
@@ -71,6 +73,8 @@ int interpret_from_input_stream();
 int interpret_from_memory();
 
 int execute_word(uint16_t p);
+
+void execute_system(char *filename);
 
 
 #endif

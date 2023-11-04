@@ -1,5 +1,5 @@
-#ifndef _DOS_H
-#define _DOS_H
+#ifndef DOS_H
+#define DOS_H
 
 #include <stdint.h>
 
@@ -70,7 +70,7 @@ uint8_t function_02H_Character_Output(Memory *memory, uint16_t character);
 //uint8_t function_03H_Auxiliary_Input(Memory *memory, uint16_t unused);
 //uint8_t function_04H_Auxiliary_Output(Memory *memory, uint16_t character);
 uint8_t function_05H_Print_Character(Memory *memory, uint16_t character);
-//uint8_t function_06H_Direct_Console_IO(Memory *memory, uint16_t unused);
+uint8_t function_06H_Direct_Console_IO(Memory *memory, uint16_t unused);
 //uint8_t function_07H_Unfiltered_Character_Input_Without_Echo(uint8_t *character);
 uint8_t function_08H_Character_Input_Without_Echo(Memory *memory, uint16_t character);
 //

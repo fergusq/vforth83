@@ -1,5 +1,5 @@
-#ifndef _ERRORS_H
-#define _ERRORS_H
+#ifndef ERRORS_H
+#define ERRORS_H
 
 enum ErrorCode {
     ERROR_UNKNOWN_ERROR = 1,

@@ -54,6 +54,24 @@ int read_paragraph_to_input_buffer_from_file(InterpreterState *state, FILE *file
     return 0;
 }
 
+int read_string_to_input_buffer(InterpreterState *state, char *string) {
+    *state->NUMBER_TIB_var = 0;
+    *state->TO_IN_var = 0;
+    int c;
+    for (int i = 0; (c = string[i]) != 0; i++) {
+        if (*state->NUMBER_TIB_var >= MAX_INPUT_SIZE) {
+            return ERROR_FILE_TOO_LARGE;
+        }
+        state->INPUT_BUFFER[*state->NUMBER_TIB_var] = c;
+        *state->NUMBER_TIB_var += 1;
+    }
+    memset(&state->INPUT_BUFFER[*state->NUMBER_TIB_var], ' ', MAX_INPUT_SIZE - *state->NUMBER_TIB_var);
+    if (c == EOF) {
+        return ERROR_END_OF_INPUT;
+    }
+    return 0;
+}
+
 uint8_t read_char(InterpreterState *state) {
     /*if (*state->BLK_var > 0 && *state->TO_IN_var < BLOCK_SIZE) {
         uint8_t c = state->BLOCK_BUFFER[*state->TO_IN_var];
