@@ -73,10 +73,21 @@ vforth83 -s system.fs -i
 vforth83 -m system.bin -i
 ```
 
+## Sampo 2
+
+The source code files for the [Sampo 2 Programming Language](https://fi.wikipedia.org/wiki/Sampo_(ohjelmointikieli)) written in Forth 83 have been included in the `sampo` folder. The original files can be found in [Sampo's GitHub repository](https://github.com/sampo-lang/sampo/tree/master/Sampo_Fenix). You can start Sampo with the following command:
+
+```sh
+cd sampo
+vforth83 -s ../system.fs -s sampo.fs --curses --finnish
+```
+
 ## Credits
 
 The `system.f` file contains definitions copied from the Forth 83 Model Implementation (C) Henry Laxen and Mike Perry 1984.
 
 The `core.fr` and `tester.fr` files by John Hayes (C) Johns Hopkins University / Applied Physics Laboratory 1995.
+
+Files in the `sampo` folder (C) Systiimi Oy 1987.
 
 Other files and source code (C) Iikka Hauhio 2023.
