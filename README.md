@@ -21,6 +21,7 @@ Implemented:
 
 Not implemented:
 
+- Multitasking and USER words
 - Hercules Graphics emulation
 - Advanced debugging utilities
   - SEE is missing features
@@ -46,6 +47,30 @@ The tests can be run with:
 
 ```sh
 make test
+```
+
+## Usage
+
+To run a file, pass `-s` to vforth83. Typically, you want to load `system.fs` before any other files.
+
+```sh
+vforth83 -s system.fs -s file.fs
+```
+
+You can save a snapshot of the dictionary to a file to speed up loading files.
+This can also be used if you wish to distribute files in compiled form instead of their source code.
+
+```sh
+vforth83 -s system.fs -M system.bin
+vforth83 -m system.bin -s file.fs
+```
+
+The `-i` flag can be used to start the interpreter mode.
+
+```sh
+vforth83 -s system.fs -i
+# or
+vforth83 -m system.bin -i
 ```
 
 ## Credits
