@@ -6,6 +6,10 @@
 #include <ctype.h>
 #include <locale.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include "forth.h"
 #include "stack.h"
 #include "memory.h"
@@ -279,6 +283,9 @@ int pop_debug_frame(uint16_t *cfa) {
 }
 
 void step(uint16_t next_cfa) {
+    if (state->skip_above > 0 && state->DEBUG_CALL_STACK->size > state->skip_above) {
+        return;
+    }
     printf("\nStack trace: ");
     print_stack_trace(stdout);
     Definition *def = get_definition(state->MEMORY, TO_NAME(state->MEMORY, next_cfa));
@@ -288,19 +295,52 @@ void step(uint16_t next_cfa) {
         pick_data_stack(state->MEMORY, i, &value);
         printf(" %7d", value);
     }
+    printf("\nMemory at HERE:");
+    for (int i = -2; i < 2; i++) {
+        printf("\n%04x:", state->MEMORY->memory_pointer + 16*i);
+        
+        // Hex
+        for (int j = 16*i; j < 16*(i+1); j++) {
+            printf(" %c%02x", j == 0 ? '>' : ' ', state->MEMORY->memory[state->MEMORY->memory_pointer + j]);
+        }
+
+        // ASCII
+        printf(" |");
+        for (int j = 16*i; j < 16*(i+1); j++) {
+            uint8_t chr = state->MEMORY->memory[state->MEMORY->memory_pointer + j];
+            printf("%c", isprint(chr) ? chr : '.');
+        }
+        printf("|");
+
+        // Check if any of the addresses are cfas
+        for (int j = 16*i; j < 16*(i+1); j+=1) {
+            uint16_t cfa = *memory_at16(state->MEMORY, state->MEMORY->memory_pointer + j);
+            Definition *def;
+            if (cfa != 0 && (def = get_definition(state->MEMORY, TO_NAME(state->MEMORY, cfa))) != 0) {
+                printf(" %04x=%s", cfa, def->name);
+                free_definition(def);
+            }
+        }
+    }
     printf("\nNext instruction: %s", def->name);
     loop: while (1) {
-        printf("\nN=Next C=Continue > ");
+        printf("\nN=Next S=Step over C=Continue > ");
         char cmd[10];
         fgets(cmd, 9, stdin);
         switch (cmd[0]) {
             case 'N':
             case 'n':
+                state->skip_above = 0;
+                goto end;
+            case 'S':
+            case 's':
+                state->skip_above = state->DEBUG_CALL_STACK->size;
                 goto end;
             case 'C':
             case 'c':
                 state->debug = 0;
                 state->breakpoint = 0;
+                state->skip_above = 0;
                 goto end;
             default:
                 break;
@@ -394,47 +434,60 @@ int interpret_from_input_stream() {
     return 0;
 }
 
+int interpret_instruction_from_memory() {
+    uint16_t cfa = *memory_at16(state->MEMORY, state->program_counter);
+    state->program_counter += 2;
+    if (state->breakpoint != 0 && state->breakpoint == cfa) {
+        state->debug = 1;
+    }
+    if (state->debug) {
+        step(cfa);
+    }
+    if (cfa == state->BUILTINS[BUILTIN_WORD_LIT]) {
+        uint16_t num = *memory_at16(state->MEMORY, state->program_counter);
+        state->program_counter += 2;
+        int ret = push_data_stack(state->MEMORY, num);
+        if (ret != 0) return ret;
+    } else if (cfa == state->BUILTINS[BUILTIN_WORD_BRANCH]) {
+        uint16_t addr = *memory_at16(state->MEMORY, state->program_counter);
+        state->program_counter = addr;
+    } else if (cfa == state->BUILTINS[BUILTIN_WORD_QUESTION_BRANCH]) {
+        uint16_t flag;
+        int ret = pop_data_stack(state->MEMORY, &flag);
+        if (ret != 0) return ret;
+        uint16_t addr = *memory_at16(state->MEMORY, state->program_counter);
+        if (flag == 0) {
+            state->program_counter = addr;
+        } else {
+            state->program_counter += 2;
+        }
+    } else {
+        int ret = execute_word(cfa);
+        if (ret < 0) {
+            return ret;
+        } else if (ret > 0) {
+            char *message = get_error_string(ret);
+            Definition *definition = get_definition(state->MEMORY, TO_NAME(state->MEMORY, cfa));
+            if (definition == 0) {
+                fprintf(stderr, "error: could not find definition for %x\n", cfa);
+                fprintf(stderr, "error: %s (%d) while executing word %x", message, ret, cfa);
+            } else {
+                fprintf(stderr, "error: %s (%d) while executing word %x %s", message, ret, cfa, definition->name);
+                free_definition(definition);
+            }
+            print_stack_trace(stderr);
+            fprintf(stderr, "\n");
+            return -3;
+        }
+    }
+    return 0;
+}
+
 int interpret_from_memory() {
     while (1) {
-        uint16_t cfa = *memory_at16(state->MEMORY, state->program_counter);
-        state->program_counter += 2;
-        if (state->breakpoint != 0 && state->breakpoint == cfa) {
-            state->debug = 1;
-        }
-        if (state->debug) {
-            step(cfa);
-        }
-        if (cfa == state->BUILTINS[BUILTIN_WORD_LIT]) {
-            uint16_t num = *memory_at16(state->MEMORY, state->program_counter);
-            state->program_counter += 2;
-            int ret = push_data_stack(state->MEMORY, num);
-            if (ret != 0) return ret;
-        } else if (cfa == state->BUILTINS[BUILTIN_WORD_BRANCH]) {
-            uint16_t addr = *memory_at16(state->MEMORY, state->program_counter);
-            state->program_counter += addr;
-        } else if (cfa == state->BUILTINS[BUILTIN_WORD_QUESTION_BRANCH]) {
-            uint16_t flag;
-            int ret = pop_data_stack(state->MEMORY, &flag);
-            if (ret != 0) return ret;
-            uint16_t addr = *memory_at16(state->MEMORY, state->program_counter);
-            if (flag == 0) {
-                state->program_counter += addr;
-            } else {
-                state->program_counter += 2;
-            }
-        } else {
-            int ret = execute_word(cfa);
-            if (ret < 0) {
-                return ret;
-            } else if (ret > 0) {
-                Definition *definition = get_definition(state->MEMORY, TO_NAME(state->MEMORY, cfa));
-                char *message = get_error_string(ret);
-                fprintf(stderr, "error: %s (%d) while executing word %u %s", message, ret, cfa, definition->name);
-                print_stack_trace(stderr);
-                fprintf(stderr, "\n");
-                free_definition(definition);
-                return -3;
-            }
+        int ret = interpret_instruction_from_memory();
+        if (ret != 0) {
+            return ret;
         }
     }
     return 0;
@@ -502,10 +555,19 @@ void usage(FILE *file, char *program_name) {
     fprintf(file, "usage: %s [-m MEMORY_FILE] {-s SYSTEM_FILE} [-M MEMORY_FILE] [-t] [-i | --curses] [--finnish]\n", program_name);
 }
 
+#ifdef __EMSCRIPTEN__
+char *ARGV[] = {"", "-m", "sampo.bin", "--finnish", "--sdl2"};
+int ARGC = 5;
+#endif
+
 int main(int argc, char *argv[]) {
+    #ifdef __EMSCRIPTEN__
+    argv = ARGV;
+    argc = ARGC;
+    #endif
     setlocale(LC_ALL, "C.UTF-8");
     char *input_memory_file = 0, *output_memory_file = 0;
-    uint8_t curses = 0, interactive=0;
+    uint8_t curses = 0, sdl2 = 0, interactive=0;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
             usage(stdout, argv[0]);
@@ -527,6 +589,8 @@ int main(int argc, char *argv[]) {
             interactive = 1;
         } else if (strcmp(argv[i], "--curses") == 0) {
             curses = 1;
+        } else if (strcmp(argv[i], "--sdl2") == 0) {
+            sdl2 = 1;
         } else if (strcmp(argv[i], "--verbose") == 0) {
             VERBOSE = 1;
         } else {
@@ -572,10 +636,11 @@ int main(int argc, char *argv[]) {
         return 0;
     }
 
-    if (curses) {
+    if (curses || sdl2) {
         // Let the Forth handle its input and output itself
-        init_io();
-        read_string_to_input_buffer(state, "COLD");
+        init_io(curses ? OUTPUT_MODE_CURSES : OUTPUT_MODE_SDL2);
+        forth_printf("Forth initialized, running COLD QUIT\n");
+        read_string_to_input_buffer(state, "COLD QUIT");
         interpret_from_input_stream();
         while (1) {
             read_string_to_input_buffer(state, "QUIT");

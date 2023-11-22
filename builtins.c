@@ -98,7 +98,7 @@ int builtin_store(InterpreterState *state) {
 
 int builtin_tick(InterpreterState *state) {
     read_name(word, definition);
-    push_from(FROM_BODY(definition->pfa));
+    push_from(definition->cfa);
     free_definition(definition);
     free(word);
     return 0;
@@ -838,7 +838,7 @@ int builtin_um_divide_mod(InterpreterState *state) {
     pop_to_unsigned(n3);
     pop_to_unsigned_32bit(d1);
     //if (n3 == 0) return ERROR_DIVISION_BY_ZERO;
-    if (n3 == 0) {
+    if (n3 == 0 || n3 == 65535) {
         push_from(-1);
         push_from(-1);
         return 0;
@@ -1045,31 +1045,6 @@ int builtin_du_less_than(InterpreterState *state) {
     pop_to_unsigned_32bit(d2);
     pop_to_unsigned_32bit(d1);
     push_from(d1 < d2 ? -1 : 0);
-    return 0;
-}
-
-int builtin_backward_mark(InterpreterState *state) {
-    push_from(state->MEMORY->memory_pointer);
-    return 0;
-}
-
-int builtin_backward_resolve(InterpreterState *state) {
-    pop_to_unsigned(addr);
-    uint16_t offset = addr - state->MEMORY->memory_pointer;
-    insert16(state->MEMORY, offset);
-    return 0;
-}
-
-int builtin_forward_mark(InterpreterState *state) {
-    push_from(state->MEMORY->memory_pointer);
-    insert16(state->MEMORY, 0);
-    return 0;
-}
-
-int builtin_forward_resolve(InterpreterState *state) {
-    pop_to_unsigned(addr);
-    uint16_t offset = state->MEMORY->memory_pointer - addr;
-    *memory_at16(state->MEMORY, addr) = offset;
     return 0;
 }
 
@@ -1457,7 +1432,9 @@ void see(InterpreterState *state, Definition *definition) {
                 Definition *d = get_definition(state->MEMORY, TO_NAME(state->MEMORY, addr));
                 if (d != 0 && *d->name != '\0') {
                     forth_printf("%s ", d->name);
+                    uint8_t is_unnest = strcmp(d->name, "UNNEST") == 0;
                     free_definition(d);
+                    if (is_unnest) break;
                 } else {
                     forth_printf("%d ", addr);
                 }
@@ -1657,11 +1634,6 @@ BuiltinFunction BUILTINS[MAX_BUILTINS] = {
     [BUILTIN_WORD_DMAX] = builtin_dmax,
     [BUILTIN_WORD_DMIN] = builtin_dmin,
     [BUILTIN_WORD_DU_LESS_THAN] = builtin_du_less_than,
-
-    [BUILTIN_WORD_BACKWARD_MARK] = builtin_backward_mark,
-    [BUILTIN_WORD_BACKWARD_RESOLVE] = builtin_backward_resolve,
-    [BUILTIN_WORD_FORWARD_MARK] = builtin_forward_mark,
-    [BUILTIN_WORD_FORWARD_RESOLVE] = builtin_forward_resolve,
 
     [BUILTIN_WORD_QUESTION_BRANCH] = builtin_error_not_executable,
     [BUILTIN_WORD_BRANCH] = builtin_error_not_executable,

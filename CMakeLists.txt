@@ -1,10 +1,25 @@
 cmake_minimum_required(VERSION 3.20)
 project(vforth83)
-set(CURSES_NEED_NCURSES true)
-set(CURSES_NEED_WIDE true)
-find_package(Curses REQUIRED)
+
+if(EMSCRIPTEN)
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -s USE_SDL=2 -s USE_SDL_TTF=2 -s ASYNCIFY")
+    set(CMAKE_EXECUTABLE_SUFFIX ".html")
+else()
+    set(CURSES_NEED_NCURSES true)
+    set(CURSES_NEED_WIDE true)
+    find_package(Curses REQUIRED)
+endif()
+
+find_package(SDL2 REQUIRED)
+
 add_executable(vforth83 builtins.c dos.c errors.c forth.c input_stream.c io.c memory.c stack.c util.c)
-target_link_libraries(vforth83 ncursesw)
+
+if(EMSCRIPTEN)
+    set_target_properties(vforth83 PROPERTIES LINK_FLAGS "--preload-file ./data@/")
+    target_link_libraries(vforth83 SDL2 SDL2_ttf m freetype harfbuzz)
+else()
+    target_link_libraries(vforth83 ncursesw SDL2 SDL2_ttf m)
+endif()
 
 add_custom_command(
     OUTPUT test.fs

@@ -30,3 +30,11 @@ clear 0 0 0 0
 
 DECIMAL
 
+luo :x nel 4 kertaa :x eteen 90 oikea valmis
+luo :x kukka 8 kertaa :x nel 45 oikea valmis
+
+luo :f kuvaaja 500 kertaa i i :f tee piste valmis
+luo sin90 drop sin<90 0 drop valmis
+luo sin45 drop sin<45 0 drop valmis
+luo uusi 0 0 (vidio) 2drop 2drop valmis
+

@@ -74,6 +74,11 @@ CR .( Basic control structures )
 : COMPILE ( -- ) R> DUP 2+ >R @ , ;
 : C, HERE C! 1 ALLOT ;
 
+: <MARK    HERE ;
+: <RESOLVE , ;
+: >MARK    HERE 0 , ;
+: >RESOLVE HERE SWAP ! ;
+
 : IF ( -- sys ) COMPILE ?BRANCH >MARK ; IMMEDIATE
 : ELSE ( sys -- sys ) COMPILE BRANCH >MARK SWAP >RESOLVE ; IMMEDIATE
 : THEN ( sys -- ) >RESOLVE ; IMMEDIATE
@@ -96,8 +101,8 @@ CR .( Basic control structures )
 : BEGIN ( -- sys ) <MARK ; IMMEDIATE
 : UNTIL ( sys -- ) COMPILE ?BRANCH <RESOLVE ; IMMEDIATE
 : AGAIN ( sys -- ) COMPILE BRANCH <RESOLVE ; IMMEDIATE
-: WHILE ( sys -- sys ) [COMPILE] IF 2SWAP ; IMMEDIATE
-: REPEAT ( sys -- ) [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
+: WHILE ( sys -- sys ) [COMPILE] IF ; IMMEDIATE
+: REPEAT ( sys -- ) 2SWAP [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
 
 : DO ( w1 w2 -- sys ) -1 [COMPILE] LITERAL [COMPILE] IF COMPILE (DO) <MARK ; IMMEDIATE
 : ?DO ( w1 w2 -- sys ) COMPILE 2DUP COMPILE <> [COMPILE] IF COMPILE (DO) <MARK ; IMMEDIATE
@@ -154,7 +159,7 @@ CR .( Create )
     ( Set immd )    0 HERE 1 TRAVERSE 1+ C!
     ( Set link )    LAST @ HERE N>LINK !
     ( Set type )    HERE NAME> !
-    ( Set code p )  HERE NAME> DUP >BODY SWAP 2+ !
+    ( Set code p )  HERE NAME> DUP 2+ !
     ( Set LAST )    HERE LAST !
     ( Set CURRENT ) HERE CURRENT @ !
     ( Allot )       HERE NAME> >BODY HERE - ALLOT
@@ -288,8 +293,8 @@ CR .( Control structures )
 : BEGIN ( -- sys ) ?<MARK ; IMMEDIATE
 : UNTIL ( sys -- ) COMPILE ?BRANCH ?<RESOLVE ; IMMEDIATE
 : AGAIN ( sys -- ) COMPILE BRANCH ?<RESOLVE ; IMMEDIATE
-: WHILE ( sys -- sys ) [COMPILE] IF 2SWAP ; IMMEDIATE
-: REPEAT ( sys -- ) [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
+: WHILE ( sys -- sys ) [COMPILE] IF ; IMMEDIATE
+: REPEAT ( sys -- ) 2SWAP [COMPILE] AGAIN [COMPILE] THEN ; IMMEDIATE
 
 .( Do )
 

@@ -43,6 +43,7 @@ typedef struct _InterpreterState {
 
     uint16_t program_counter;
     uint16_t breakpoint;
+    uint16_t skip_above;
     uint8_t debug;
 
     // Builtin compilation addresses

@@ -1,6 +1,7 @@
 #include <malloc.h>
 #include <stdint.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "errors.h"
 #include "memory.h"
@@ -94,9 +95,17 @@ Definition *get_definition(Memory *memory, uint16_t nfa) {
     uint16_t cfa = FROM_NAME(memory, nfa);
     Definition *definition = malloc(sizeof(*definition));
     definition->name_length = *memory_at8(memory, nfa);
+    if (definition->name_length == 0 || definition->name_length > MAX_NAME_LENGTH) { // Check this is a valid name length
+        free(definition);
+        return 0;
+    }
     definition->name = malloc(definition->name_length + 1);
     for (int i = 0; i < definition->name_length; i++) {
         definition->name[i] = *memory_at8(memory, nfa + i + 1);
+        if (!isprint(definition->name[i])) { // Check this is a valid name
+            free_definition(definition);
+            return 0;
+        }
     }
     definition->name[definition->name_length] = '\0';
     definition->is_immediate = *memory_at8(memory, TO_IMMEDIATE_FLAG(cfa));
